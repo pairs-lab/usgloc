@@ -1,0 +1,354 @@
+%==============================================================================
+% USGLoc: Uncertainty-Aware Semantic Visual Localization from 3D Gaussian Splatting
+% RAL (IEEE Robotics and Automation Letters) draft -- IEEEtran journal class.
+%==============================================================================
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath,amssymb,amsfonts,bm}
+\usepackage{graphicx}
+\graphicspath{{figures/}}  % so \includegraphics{fig3_...} resolves under figures/
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,backgrounds,fit,calc}
+\usepackage{orcidlink}
+% Lets us \input the figure sources directly while they remain independently
+% compilable (pdflatex figures/figN.tex). subpreambles=false: the children's
+% \documentclass/preamble are skipped on \input and the main preamble below
+% supplies every package/color the figures need (no \usepackage runs mid-doc).
+\usepackage[subpreambles=false]{standalone}
+
+% ---- Colors for the \input'ed TikZ figures (figures/fig1_overview.tex, fig2_positioning.tex) ----
+\definecolor{ink}{HTML}{273746}
+\definecolor{uLow}{HTML}{1B9E77}
+\definecolor{uMid}{HTML}{E6AB02}
+\definecolor{uHigh}{HTML}{D95F02}
+\definecolor{coarseBg}{HTML}{EAF2FB}
+\definecolor{coarseLn}{HTML}{9DC3EC}
+\definecolor{fineBg}{HTML}{FDF1E6}
+\definecolor{fineLn}{HTML}{F0C28E}
+\definecolor{encBg}{HTML}{EEF6EE}
+\definecolor{encLn}{HTML}{B7D8B7}
+\definecolor{outBg}{HTML}{FFF3D6}
+\definecolor{outLn}{HTML}{D9A300}
+% fig2_positioning.tex colors
+\definecolor{mapprin}{HTML}{E8F4EF}
+\definecolor{mappt}{HTML}{F2F3F4}
+\definecolor{locpt}{HTML}{EAF2FB}
+\definecolor{ourstr}{HTML}{FFF3D6}
+
+% Red placeholder for any result you still need to fill in.
+\newcommand{\res}{{\color{red}\textbf{--}}}
+% Inline TODO marker.
+\newcommand{\TODO}[1]{{\color{red}[TODO: #1]}}
+% Compile-safe figure placeholder (no external files needed for a first build).
+\newcommand{\figbox}[2]{%
+  \fbox{\parbox[c][#1][c]{0.97\linewidth}{\centering\footnotesize #2}}}
+
+% Working acronym; rename globally if you change the method name.
+\newcommand{\method}{USGLoc}
+
+\begin{document}
+
+\title{\method{}: Uncertainty-Aware Semantic Visual Localization from 3D Gaussian Splatting}
+
+\author{Thanh Nguyen Canh
+\orcidlink{https://orcid.org/0000-0001-6332-1002},~\IEEEmembership{Graduate Student Member,~IEEE}, Bang Nguyen Van, Xiem HoangVan\orcidlink{0000-0001-6332-1002}, and Nak Young Chong\orcidlink{0000-0001-5736-0769},~\IEEEmembership{Senior Member,~IEEE} % <-this % stops a space
+\thanks{This work was supported by JST SPRING, Japan Grant Number JPMJSP2102. (Corresponding authors: nakyoung@jaist.ac.jp, xiemhoang@vnu.edu.vn)}
+\thanks{Thanh Nguyen Canh, and Nak Yong Chong are with Japan Advanced Institute of Science and Technology, Ishikawa, 923-1211, Japan. {\tt\small \{thanhnc, pham\_n\_quang, van-ho, nakyoung\}@jaist.ac.jp}}%
+
+\thanks{Bang, Nguyen Van, Xiem HoangVan is with the University of Engineering and Technology, Vietnam National University, Hanoi, 10000, Vietnam. {\tt\small \{tongvan, xiemhoang\}@vnu.edu.vn}}
+}
+
+\markboth{IEEE Robotics and Automation Letters. Preprint Version. Month, Year}%
+{Nguyen Canh \MakeLowercase{\textit{et al.}}: Uncertainty-Aware Semantic Visual Localization from 3D Gaussian Splatting}
+
+\maketitle
+
+%------------------------------------------------------------------------------
+\begin{abstract}
+Visual localization in complex, dynamic indoor environments must provide not only an accurate 6-DoF pose but a trustworthy estimate of its uncertainty, especially for safety-critical platforms such as autonomous micro aerial vehicles that fuse pose measurements into probabilistic state estimators. Recent semantic 3D Gaussian Splatting (3DGS) localizers attain strong accuracy yet return a single point pose with no measure of confidence, while uncertainty-aware semantic mapping methods quantify per-element reliability but do not localize a query. We present \method{}, a semantic 3DGS localization framework that outputs a \emph{calibrated distribution} over camera pose. We construct an evidential semantic Gaussian map in which each primitive carries a Dempster--Shafer belief over open-vocabulary semantics together with an explicit vacuity (uncertainty) mass, and we encode the query image into the same evidential feature space. Coarse localization is cast as uncertainty-weighted 2D--3D semantic matching that gates instance correspondences by evidential vacuity and yields a set of weighted pose hypotheses, naturally forming a pose mixture. Each hypothesis is refined by differentiable rendering with a per-pixel uncertainty weight obtained by alpha-blending primitive vacuity---continuously down-weighting dynamic and ambiguous regions---and the pose covariance is recovered from the Gauss--Newton Hessian at the optimum via a Laplace approximation. The output is a Gaussian-mixture pose posterior on $SE(3)$ that condenses to a single Gaussian for direct use in a Bayesian filter. \TODO{one-sentence headline result}. Beyond standard accuracy, we report calibration metrics (coverage, sparsification error, and negative log-likelihood) that are largely absent from prior localization work, demonstrating that the predicted uncertainty is both well-calibrated and informative.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Localization, RGB-D perception, semantic scene understanding, uncertainty quantification, deep learning for visual perception.
+\end{IEEEkeywords}
+
+%==============================================================================
+\section{Introduction}
+\IEEEPARstart{V}{isual} localization---estimating the 6-DoF camera pose of a query image within a previously mapped scene---is a core capability for indoor mobile robots and micro aerial vehicles (MAVs)~\cite{kerbl3dgs,sgloc,chukim}. For autonomous platforms operating in cluttered, dynamic rooms, the pose is rarely consumed in isolation: it is injected as a measurement into a recursive Bayesian estimator (e.g., an EKF/UKF) that fuses it with inertial and other cues~\cite{ukf,gsf}. Such fusion is only as sound as the \emph{uncertainty} attached to each measurement. A pose reported without a covariance, or with a poorly calibrated one, forces the estimator to assume a fixed noise model that does not reflect scene ambiguity, occlusion, dynamics, or texture sparsity---precisely the conditions that degrade localization. Consequently, an indoor localizer should output not a point but a \emph{calibrated distribution} over pose.
+
+Classical localization is dominated by feature-based and regression-based methods. Feature-based pipelines match 2D keypoints to a 3D model and solve Perspective-$n$-Point with RANSAC~\cite{superpoint,superglue,lightglue}; absolute pose regression (APR)~\cite{posenet,mstransformer,marepo} and scene coordinate regression (SCR)~\cite{dsacstar,ace,glace,scrnet} learn the mapping end-to-end. With the advent of high-fidelity, real-time novel-view synthesis, 3D Gaussian Splatting (3DGS)~\cite{kerbl3dgs} has become an attractive map representation, and a family of 3DGS localizers refine pose by inverting or matching against the rendered map~\cite{icomma,sixdgs,gsloc,splatloc,gscpr,stdloc}. Semantics further improve robustness: SGLoc~\cite{sgloc} retrieves a coarse pose by aligning 2D and 3DGS scene-level semantic descriptors, and Chu and Kim~\cite{chukim} use a language model to select ``stable'' objects for a robust submap. These methods are accurate, but they share two limitations. First, they emit a single pose and \emph{say nothing about its reliability}. Second, robustness to dynamics is handled either implicitly or through a hard, discrete object selection that cannot express graded confidence.
+
+A separate line of work quantifies uncertainty rigorously, but stops short of a calibrated pose distribution over a 3DGS map. Wu and Campbell~\cite{ksenet} learn a measurement-error \emph{distribution} for image-retrieval localization and show empirically that the error is non-Gaussian under hard weather and lighting, calling for a Gaussian-mixture model---yet their setting is purely 2D image retrieval, with no 3D map or rendering. Particle-based localizers over radiance fields~\cite{locnerf,mcloc} maintain a nonparametric pose belief but report only its MAP point, without calibration; most recently, UGS-Loc~\cite{ugsloc} guides 3DGS pose refinement with Fisher-information uncertainty maps and Monte Carlo pose sampling, yet uses uncertainty only \emph{internally} and likewise emits a single point estimate. Evidential learning has reached scene-coordinate regression~\cite{chen2024edlscr}, but without a metric map to localize against at test time. On the mapping side, evidential semantic mapping~\cite{ebs,e2bki} propagates per-observation semantic uncertainty using Evidential Deep Learning (EDL)~\cite{edl} and Dempster--Shafer Theory (DST)~\cite{dst}; E$^2$-BKI~\cite{e2bki} additionally introduces anisotropic Gaussian primitives and geometry-aligned kernels, and rendering-side uncertainty for radiance fields is well studied~\cite{fisherrf, bayesrays}. These methods produce trustworthy \emph{maps}, but their uncertainty never reaches the pose estimate a robot consumes. To our knowledge, no existing method outputs a \emph{calibrated} pose distribution from a Gaussian-splatting map---the cell of the design space defined by \emph{calibrated $SE(3)$ localization $\times$ evidential semantics $\times$ a Gaussian-splatting map} remains unoccupied (Fig.~\ref{fig:positioning}).
+
+We fill that cell with \method{}. The reference map is an evidential semantic Gaussian map: each object-level primitive stores geometry, an open-vocabulary CLIP~\cite{clip} embedding, and a DST belief with an explicit vacuity mass, fused from its constituent Gaussians via Dempster's rule~\cite{e2bki,trustedmv}. The query image is segmented~\cite{fastsam} and encoded into the \emph{same} evidential space, so query and map instances are directly comparable in confidence as well as appearance. Coarse localization is an uncertainty-weighted 2D--3D matching problem whose top hypotheses define a weighted pose mixture; each hypothesis is then refined by differentiable rendering~\cite{icomma}, but with a residual weighted per-pixel by alpha-blended primitive vacuity, so dynamic and ambiguous regions contribute little. Finally, the pose covariance is recovered from the Gauss--Newton Hessian at the optimum (a Laplace approximation), producing a Gaussian-mixture posterior on $SE(3)$ that can be condensed to a single Gaussian and handed to a downstream filter. Our contributions are:
+
+\begin{itemize}
+\item A semantic 3DGS visual-localization framework that outputs a \emph{calibrated $SE(3)$ pose distribution} rather than a point estimate, integrating evidential (DST) semantic uncertainty end-to-end from the map to the pose. To our knowledge this is the first localizer that (i) builds an evidential semantic Gaussian-splatting map, (ii) propagates its uncertainty through retrieval, matching, and rendering-based refinement, and (iii) emits a calibrated pose posterior: prior 3DGS localizers either ignore uncertainty~\cite{stdloc,gsplatloc,gscpr}, use it only internally and return a point~\cite{ugsloc}, or maintain uncalibrated beliefs in non-splatting or SLAM settings~\cite{locnerf,mcloc,vbgsslam}.
+\item An uncertainty-weighted 2D--3D semantic matching scheme that gates instance correspondences by evidential vacuity and yields a weighted pose mixture, lifting the multi-modal/non-Gaussian insight of~\cite{ksenet} from 2D image retrieval to 6-DoF.
+\item An uncertainty-aware differentiable-rendering refinement that continuously down-weights dynamic and ambiguous pixels via alpha-blended primitive vacuity---a graded replacement for discrete robust-object selection~\cite{chukim}---and recovers a pose covariance through a Laplace approximation at the optimum.
+\item A calibration-centric evaluation protocol (coverage, AUSE, NLL, ECE) on standard and semi-dynamic indoor benchmarks, \TODO{summary of empirical findings}.
+\end{itemize}
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{\input{figures/fig1_overview}}
+\caption{Overview of \method{}. Query and map share an evidential semantic representation; matching and refinement propagate uncertainty to a calibrated pose distribution.}
+\label{fig:overview}
+\end{figure*}
+
+%==============================================================================
+\section{Related Work}
+
+\begin{figure}[t]
+\centering
+\resizebox{0.95\columnwidth}{!}{\input{figures/fig2_positioning}}
+\caption{Design-space positioning. Prior work covers uncertainty-aware semantic \emph{mapping} (top-left)~\cite{e2bki,ebs} and accurate but point-estimate \emph{localization} (bottom-right)~\cite{sgloc,chukim,stdloc}; Wu and Campbell~\cite{ksenet} model a distribution, but only for 2D image retrieval, and UGS-Loc~\cite{ugsloc} exploits uncertainty inside a 3DGS refiner yet still returns a point. \method{} fills the open cell---a calibrated $SE(3)$ pose distribution from a 3DGS map.}
+\label{fig:positioning}
+\end{figure}
+
+\subsection{Visual Localization}
+APR methods directly regress pose from an image~\cite{posenet,mstransformer,marepo}; they are fast and storage-light but tie accuracy to the training distribution and lack explicit geometric reasoning. SCR methods regress 2D--3D correspondences and recover pose by PnP+RANSAC~\cite{dsacstar,ace,glace,scrnet}, improving accuracy through geometry but generalizing poorly across scenes and degrading in cluttered indoor layouts; recent extensions add self-supervised mapping~\cite{ace0} and per-coordinate uncertainty used to prefilter correspondences~\cite{bruns2025ace}. Feature-based pipelines~\cite{superpoint,superglue,lightglue,aliked} remain strong but rely on low-level features that are sensitive to lighting and texture, and feed-forward pointmap models~\cite{mast3r,reloc3r} now relocalize in unseen scenes with internal per-correspondence confidences. Semantics support relocalization at the object and scene-graph level~\cite{cliploc,scenegraphloc}, without metric pose distributions. Across all of these, uncertainty---where present---is consumed internally; none reports a calibrated pose covariance.
+
+\subsection{Rendering-Based Localization (NeRF and 3DGS)}
+NeRF-based methods synthesize novel views to refine pose, e.g., iNeRF~\cite{inerf}, NeFeS~\cite{nefes}, PNeRFLoc~\cite{pnerfloc}, CrossFire~\cite{crossfire}, and NeRFMatch~\cite{nerfmatch}, but suffer from slow rendering and lighting sensitivity; particle-based variants~\cite{locnerf,mcloc} maintain a nonparametric pose belief by render-and-compare yet report only its MAP point. 3DGS~\cite{kerbl3dgs} enables fast, high-quality rendering and a compact map, and localization against 3DGS maps has expanded rapidly: iComMa~\cite{icomma} inverts the rendering process by gradient-based optimization; 6DGS~\cite{sixdgs} avoids iteration via inverse rendering; GSLoc~\cite{gsloc}, SplatLoc~\cite{splatloc}, GS-CPR~\cite{gscpr}, GSplatLoc~\cite{gsplatloc}, HGSLoc~\cite{hgsloc}, LoGS~\cite{logs}, STDLoc~\cite{stdloc}, feature fields~\cite{gsffs}, and the concurrent SplatHLoc~\cite{splathloc} establish increasingly accurate matching and refinement against the rendered map. Most related, UGS-Loc~\cite{ugsloc} refines an SCR prior on a 3DGS map by Monte Carlo pose particles weighted by matcher confidence and a rendered Fisher-information uncertainty map, which also biases PnP-RANSAC sampling toward low-uncertainty correspondences. Its uncertainty is post-hoc and purely geometric---derived from the photometric objective of a fixed map---and is consumed \emph{internally}: the output is the best particle, a single pose without covariance, calibration, or semantics. Per-correspondence uncertainty gating likewise appears in scene-coordinate regression~\cite{bruns2025ace}; in both cases the distribution dies before the output. SGLoc~\cite{sgloc} adds semantic 2D-to-3DGS retrieval for prior-free coarse pose, and Chu and Kim~\cite{chukim} augment a 3DGS map with semantics and an LLM-selected robust-object mask for dynamic indoor scenes---a \emph{discrete} gating with documented failure cases, which motivates our continuous, evidence-driven weighting. These works substantiate our pipeline choices (semantic retrieval, coarse-to-fine, rendering refinement) but uniformly output point poses; robustness to dynamics is implicit or handled by hard object selection. \method{} retains their accuracy mechanisms while adding propagated, graded uncertainty and a calibrated pose distribution.
+
+\subsection{Uncertainty in Localization and Semantic Mapping}
+Bayesian APR~\cite{kendall_bayesian} and ambiguity-aware regressors~\cite{vapor} output uncertainty but are limited to static scenes with dense pose annotations; HR-APR~\cite{hrapr} uses a scalar uncertainty only to gate refinement. Probabilistic PnP layers~\cite{epropnp} learn $SE(3)$ densities and conformal methods~\cite{purse} give statistically guaranteed pose sets, but in object-centric or map-free settings. Evidential learning has been applied to scene-coordinate regression with NeRF-derived uncertainty~\cite{chen2024edlscr}, without a metric map at query time. Wu and Campbell~\cite{ksenet} learn a 2D measurement-error distribution from keypoint and semantic cues and show it is best modeled as a Gaussian mixture under adverse conditions; we adopt this distributional view but realize it in 3D over $SE(3)$. In semantic mapping, S-BKI~\cite{sbki} provides continuity via kernel inference; ConvBKI~\cite{convbki} and SEE-CSOM~\cite{seecsom} address spatial uncertainty; EBS~\cite{ebs} and E$^2$-BKI~\cite{e2bki} use EDL~\cite{edl} and DST~\cite{dst} to model semantic uncertainty, with E$^2$-BKI representing the scene as anisotropic Gaussian primitives, while Bayesian per-splat updates extend to semantics~\cite{css} and physical properties~\cite{physgs} in 3DGS. Map- and rendering-side uncertainty for radiance fields is likewise active---Fisher information~\cite{fisherrf}, Laplace approximations~\cite{bayesrays}, uncertainty-weighted rendering losses in dynamic-scene SLAM~\cite{wildgsslam}, and variational GS-SLAM~\cite{vbgsslam}---yet in all of these the uncertainty remains internal to mapping or tracking. We transplant the evidential machinery from mapping (where it scores observations) to localization (where it scores correspondences and pixels), closing the gap between rigorous map-side uncertainty and the pose estimate consumed downstream.
+
+%==============================================================================
+\section{Problem Formulation}
+Let $\mathcal{M}=\{\mathcal{G}_i\}_{i=1}^{M}$ be a pre-built semantic Gaussian map and $I_q$ a query RGB(-D) image. Prior localizers seek a point estimate $\hat{T}=\arg\max_{T} \, s(I_q,T;\mathcal{M})$ for some scoring function $s$ and a pose $T=[R\,|\,t]\in SE(3)$. We instead estimate the full posterior
+\begin{equation}
+p\big(T \,\big|\, I_q, \mathcal{M}\big), \qquad T\in SE(3),
+\label{eq:posterior}
+\end{equation}
+and require it to be \emph{calibrated}: a credibility-$\alpha$ region of \eqref{eq:posterior} should contain the ground-truth pose with empirical frequency $\alpha$. To make uncertainty first-class on both sides, we represent each modality as a set of \emph{evidential semantic instances}. A reference primitive is
+\begin{equation}
+\mathcal{G}_i=\big(\bm{\mu}_i,\ \bm{\Sigma}_i,\ f_i,\ \mathbf{p}_i,\ u_i\big),
+\label{eq:primitive}
+\end{equation}
+with mean $\bm{\mu}_i\in\mathbb{R}^3$, covariance $\bm{\Sigma}_i\in\mathbb{R}^{3\times3}$ (anisotropic geometry), CLIP embedding $f_i\in\mathbb{R}^{d}$, semantic probability $\mathbf{p}_i\in\Delta^{C-1}$ over $C$ categories, and a scalar vacuity (uncertainty) mass $u_i\in[0,1]$. A query instance $\mathcal{Q}_j=(\mathbf{x}_j, a_j, f_j^q, \mathbf{p}_j^q, u_j^q)$ stores its 2D centroid $\mathbf{x}_j$, area $a_j$, and the same semantic triplet. The remainder of the paper specifies how $\mathcal{M}$ is built (Sec.~IV-A), how $I_q$ is encoded (Sec.~IV-B), and how \eqref{eq:posterior} is produced by uncertainty-aware matching (Sec.~IV-C) and refinement (Sec.~IV-D).
+
+%==============================================================================
+\section{Method}
+Fig.~\ref{fig:overview} summarizes \method{}. We first describe the evidential semantic representation shared by the map and the query, then the two-stage coarse-to-fine localizer that turns it into a calibrated pose distribution.
+
+\subsection{Evidential Semantic Gaussian Map}
+\textbf{Evidential semantics.} For a semantic segmentation network with an evidential head~\cite{edl}, the non-negative outputs are interpreted as evidence $e=[e_1,\dots,e_C]$ for a Dirichlet density with parameters $\alpha_c=e_c+1$. With $S=\sum_{c=1}^{C}\alpha_c$, the expected class probability, belief mass, and vacuity are
+\begin{equation}
+\hat{p}_c=\frac{\alpha_c}{S},\qquad
+b_c=\frac{\alpha_c-1}{S},\qquad
+u=\frac{C}{S},
+\label{eq:edl}
+\end{equation}
+satisfying $u+\sum_c b_c=1$. Vacuity $u$ is large when total evidence $S$ is small, i.e., when the network is uncertain. This is the per-observation uncertainty we will propagate.
+
+\textbf{From Gaussians to evidential primitives.} We build the map with an open-vocabulary semantic 3DGS representation that assigns an identity/semantic feature to each Gaussian~\cite{gaussiangroup,opengaussian}. Gaussians are clustered by spatial and semantic affinity into object-level primitives (as in~\cite{chukim}). For cluster $\mathcal{C}_i$, geometry is summarized by the empirical mean $\bm{\mu}_i$ and covariance $\bm{\Sigma}_i$ of member centroids, and the CLIP embedding $f_i$ by a vacuity-weighted average of member embeddings. The semantic belief is obtained by DST-fusing the member beliefs. For two belief--vacuity pairs $(\mathbf{b}_1,u_1),(\mathbf{b}_2,u_2)$, Dempster's rule gives~\cite{e2bki,trustedmv}
+\begin{equation}
+b^c=\tfrac{1}{1-\eta}\big(b_1^c b_2^c + b_1^c u_2 + b_2^c u_1\big),\quad
+u=\tfrac{1}{1-\eta}\,u_1 u_2,
+\label{eq:dst}
+\end{equation}
+where $\eta=\sum_{x\neq y} b_1^x b_2^y$ measures conflict. Applying \eqref{eq:dst} pairwise over $\mathcal{C}_i$ yields $(\mathbf{b}_i,u_i)$, converted back to $\mathbf{p}_i$ via $p_i^c=b_i^c+u_i/C$. Fusing within a cluster suppresses isolated mispredictions. One subtlety is essential for dynamic scenes: Dempster's normalization in \eqref{eq:dst} \emph{renormalizes conflict away}, so two confident but contradictory member opinions---the signature of an object that moved between mapping passes---fuse to a deceptively low vacuity (Zadeh's paradox). We therefore accumulate the mean pairwise conflict $\bar\eta_i$ alongside the fused mass and use the \emph{effective vacuity} $\tilde{u}_i=\min(1,\,u_i+\bar\eta_i)$ in all downstream weighting; equivalently, Yager's variant~\cite{yager} of \eqref{eq:dst}, which assigns the conflict mass to vacuity instead of renormalizing, may be used. With this correction the primitive vacuity reflects both lack of evidence and persistent disagreement, rather than single-frame noise. The map is the set $\mathcal{M}=\{\mathcal{G}_i\}$ of \eqref{eq:primitive}; for retrieval it is partitioned into overlapping submaps sampled along the mapping trajectory~\cite{sgloc}.
+
+\subsection{Evidential Query Encoding}
+Given $I_q$, we obtain instance masks with Fast-SAM~\cite{fastsam}, crop each instance, and pass it through CLIP~\cite{clip} to obtain $f_j^q$ and through the same evidential head as the map to obtain $(\mathbf{p}_j^q,u_j^q)$ via \eqref{eq:edl}. Per-instance geometry (normalized centroid $\mathbf{x}_j\in[0,1]^2$ and area $a_j$) is encoded by small MLPs. A query instance descriptor is
+\begin{equation}
+d_j^q=\mathrm{MLP}\big[\,\phi(f_j^q)\,\|\,\psi_{\mathbf{x}}(\mathbf{x}_j)\,\|\,\psi_a(a_j)\,\big],
+\label{eq:querydesc}
+\end{equation}
+with $\phi$ a projection of the CLIP feature into the shared space and $\|$ concatenation; reference descriptors $d_i^G$ are formed analogously from $(f_i,\bm{\mu}_i,\bm{\Sigma}_i)$ projected into the camera frame. Because both modalities pass through the same evidential head, $u^q$ and $u^G$ are directly comparable.
+
+\subsection{Uncertainty-Weighted Matching and the Pose Mixture}
+\textbf{Gated instance similarity.} We score a cross-modal instance pair by appearance similarity modulated by an evidential gate that suppresses pairs in which either side is uncertain:
+\begin{equation}
+s_{ij}=\underbrace{\cos\!\big(d_i^G,\,d_j^q\big)}_{\text{semantic similarity}}\cdot
+\underbrace{\exp\!\big(-\lambda_u\,(u_i^G+u_j^q)\big)}_{\text{evidential gate}},
+\label{eq:gate}
+\end{equation}
+where $\lambda_u\!\ge\!0$ controls gate sharpness. This is the localization analogue of the uncertainty-aware kernel in E$^2$-BKI~\cite{e2bki}: confident--confident matches dominate, while high-vacuity instances contribute only weakly.
+
+\textbf{Scene descriptors and retrieval.} Following the contrastive retrieval design of SGLoc~\cite{sgloc}, instance descriptors are aggregated into a scene-level descriptor by multi-head self-attention with a feed-forward layer~\cite{attention}: from $\hat{d}=Q+\mathrm{Attn}(Q,K,V)$ and $\hat{D}=\hat{d}+\mathrm{FFN}(\hat{d})$ we obtain attention weights $W=\mathrm{softmax}(\mathrm{MLP}(\hat{D}))$ and the scene descriptor $F=\sum_j \hat{D}_j W_j$ for each modality. Cosine similarity between the query scene descriptor $F^{q}$ and each submap descriptor $F^{G}_k$ ranks submaps; the top-$k$ submaps provide $k$ coarse pose hypotheses with retrieval-score weights $\tilde{\pi}_k\propto \mathrm{sim}(F^q,F^G_k)$. The gate \eqref{eq:gate} is injected into the instance-level term of the scene aggregation so that retrieval inherits the same uncertainty weighting. Because ambiguous scenes return several comparably scored submaps, the hypotheses form a \emph{pose mixture}---the $SE(3)$ realization of the non-Gaussian error observed in~\cite{ksenet}.
+
+\textbf{Training objective.} The retrieval encoders are trained with a symmetric InfoNCE loss aligning 2D and 3D scene descriptors~\cite{sgloc}, and the semantic heads with the evidential loss of~\cite{edl}: the Bayes risk of the Brier score under the Dirichlet plus a KL term that drives spurious evidence toward the uniform prior,
+\begin{equation}
+\mathcal{L}_{\mathrm{EDL}}=\sum_{c}\Big[(y_c-\hat{p}_c)^2+\tfrac{\hat{p}_c(1-\hat{p}_c)}{S+1}\Big]
++\lambda_t\,\mathrm{KL}\!\big[D(\tilde{\bm{\alpha}})\,\|\,D(\mathbf{1})\big],
+\label{eq:edlloss}
+\end{equation}
+with $\tilde{\bm\alpha}$ the evidence of misleading classes. Refinement (below) is training-free.
+
+\subsection{Uncertainty-Aware Refinement and Pose Covariance}
+\textbf{Weighted rendering objective.} Each coarse hypothesis $T_0$ is refined by differentiable rendering~\cite{icomma}. We parameterize the update in the tangent space, $T(\bm\xi)=\exp(\bm\xi^{\wedge})\,T_0$ with $\bm\xi\in\mathfrak{se}(3)$, and render both an RGB image $I_r(\bm\xi)$ and a per-pixel \emph{uncertainty map} $U_r$ by alpha-blending primitive vacuity exactly as color/depth are blended in 3DGS:
+\begin{equation}
+U_r(\mathbf{x})=\sum_{i} u_i\,\alpha_i(\mathbf{x})\!\prod_{j<i}\!\big(1-\alpha_j(\mathbf{x})\big),
+\label{eq:ublend}
+\end{equation}
+where $\alpha_i(\mathbf{x})$ is the opacity contribution of primitive $i$ at pixel $\mathbf{x}$. The refinement minimizes a per-pixel weighted photometric term plus a sparse matching term~\cite{lightglue}:
+\begin{equation}
+E(\bm\xi)=\sum_{\mathbf{x}} w(\mathbf{x})\,\big\|I_q(\mathbf{x})-I_r(\mathbf{x};\bm\xi)\big\|^2
++\lambda\!\sum_{k}\big\|\mathbf{x}_k^q-\mathbf{x}_k^r\big\|^2,
+\label{eq:refine}
+\end{equation}
+with $w(\mathbf{x})=\exp\!\big(-\gamma\,U_r(\mathbf{x})\big)$. Dynamic and ambiguous pixels---movable objects, texture-poor or semantically uncertain regions---receive small weight \emph{continuously}, replacing the binary robust mask of~\cite{chukim} with a graded, learned-uncertainty-driven weighting. The weights are held fixed at each iterate (IRLS-style; gradients flow through the photometric residual only): if $w$ were differentiated through, the optimizer could reduce \eqref{eq:refine} by steering high-residual pixels into high-vacuity regions instead of correcting the pose.
+
+\textbf{Covariance via Laplace approximation.} At the optimizer's solution $\bm\xi^\star$, let $\mathbf{r}$ be the stacked weighted residuals of \eqref{eq:refine} and $J=\partial \mathbf{r}/\partial\bm\xi|_{\bm\xi^\star}$ the Jacobian. A Laplace approximation of the per-hypothesis posterior is a tangent-space Gaussian
+\begin{equation}
+\bm\xi\sim\mathcal{N}\!\big(\bm\xi^\star,\ \bm\Sigma_{\bm\xi}\big),\qquad
+\bm\Sigma_{\bm\xi}\approx\hat{\sigma}^2\,\big(J^\top W J\big)^{-1},
+\label{eq:laplace}
+\end{equation}
+where $W=\mathrm{diag}\{w(\mathbf{x})\}$ and $\hat\sigma^2$ is estimated from the residuals. A flat optimum (poorly constrained pose) yields a large covariance; a sharp basin yields a tight one---so the reported uncertainty reflects the actual conditioning of the alignment. Because real photometric residuals are heavy-tailed and spatially correlated, the raw Laplace covariance can remain optimistic; we apply a single scalar inflation factor calibrated on a held-out split (a temperature on $\bm\Sigma_{\bm\xi}$) and ablate raw vs.\ tempered covariances in Sec.~V.
+
+\textbf{Pose distribution and condensation.} After a PSNR/feature-similarity check~\cite{sgloc} prunes hypotheses whose renders diverge from $I_q$, the surviving hypotheses form a Gaussian mixture on $SE(3)$ (each component expressed in the tangent space at its mode):
+\begin{equation}
+p\big(T\,|\,I_q,\mathcal{M}\big)=\sum_{k}\pi_k\,
+\mathcal{N}\!\big(\bm\xi;\,\bm\xi_k^\star,\,\bm\Sigma_{\bm\xi,k}\big),
+\label{eq:gmm}
+\end{equation}
+with weights $\pi_k$ renormalized from $\tilde\pi_k$ and the post-refinement render fidelity. For a downstream Bayesian filter we condense \eqref{eq:gmm} to a single Gaussian by moment matching~\cite{ksenet,gsf}, $\bm\mu=\sum_k\pi_k\bm\xi_k^\star$ and $\bm\Sigma=\sum_k\pi_k\big(\bm\Sigma_{\bm\xi,k}+(\bm\xi_k^\star-\bm\mu)(\bm\xi_k^\star-\bm\mu)^\top\big)$, transported to the inertial frame as the measurement covariance for an EKF/UKF~\cite{ukf}. As an alternative for the rotational part, the orientation may be modeled by a Bingham distribution on the unit quaternion~\cite{bingham}; we evaluate both in the ablations.
+
+\begin{algorithm}[t]
+\caption{\method{} inference (one query image)}
+\label{alg:infer}
+\begin{algorithmic}[1]
+\Require query $I_q$; evidential map $\mathcal{M}=\{\mathcal{G}_i\}$; submaps $\{S_k\}$
+\State $\{\mathcal{Q}_j\}\gets$ Fast-SAM masks of $I_q$; CLIP\,+\,EDL per instance \eqref{eq:edl}
+\State build query descriptors $d_j^q$ \eqref{eq:querydesc} and scene descriptor $F^q$
+\State score submaps by gated similarity \eqref{eq:gate}; take top-$k$ $\to$ hypotheses $\{(T_0^k,\tilde\pi_k)\}$
+\For{each hypothesis $k$}
+  \State refine $T_0^k$ by minimizing $E(\bm\xi)$ \eqref{eq:refine} with weight $w=e^{-\gamma U_r}$ \eqref{eq:ublend}
+  \State compute $\bm\Sigma_{\bm\xi,k}$ by Laplace approximation \eqref{eq:laplace}
+\EndFor
+\State prune by render fidelity; assemble GMM \eqref{eq:gmm}; condense for the filter
+\State \Return $p(T\,|\,I_q,\mathcal{M})$ and its single-Gaussian summary
+\end{algorithmic}
+\end{algorithm}
+
+%==============================================================================
+\section{Experiments}
+% =========================== READ ME ==================================
+% Everything in the tables below is a RED PLACEHOLDER (\res).
+% Nothing here is a measured result. Fill from your own runs.
+% The protocol, baselines, and metrics are ready to use as-is.
+% ======================================================================
+
+\subsection{Experimental Setup}
+\textbf{Datasets.} We evaluate on three public indoor benchmarks of increasing scale and difficulty---7Scenes~\cite{sevenscenes_a,sevenscenes_b}, 12Scenes~\cite{twelvescenes}, and ScanNet~\cite{scannet}---and on a semi-dynamic dataset captured with object rearrangements between mapping and query, following the protocol of~\cite{chukim}. On 7Scenes we adopt the \emph{SfM pseudo-ground truth}~\cite{brachmann2021dslam}, the convention used by all recent 3DGS localizers~\cite{gscpr,stdloc,ugsloc,splathloc}; DSLAM-referenced numbers (e.g.\ SGLoc~\cite{sgloc}, which also evaluates only four of the seven scenes) are not directly comparable and are discussed separately. \TODO{optionally add your own indoor-MAV sequences.}
+
+\textbf{Baselines.} APR: PoseNet~\cite{posenet}, Marepo~\cite{marepo}. SCR: ACE~\cite{ace}, GLACE~\cite{glace}, DSAC*~\cite{dsacstar}. NeRF-based: CrossFire~\cite{crossfire}, PNeRFLoc~\cite{pnerfloc}, NeFeS~\cite{nefes}. 3DGS-based: iComMa~\cite{icomma}, SplatLoc~\cite{splatloc}, GS-CPR~\cite{gscpr}, GSplatLoc~\cite{gsplatloc}, STDLoc~\cite{stdloc}, the uncertainty-guided point estimator UGS-Loc~\cite{ugsloc}, and the semantic 3DGS localizers SGLoc~\cite{sgloc} and Chu--Kim~\cite{chukim}; SplatHLoc~\cite{splathloc} is concurrent work. For calibration, no prior 3DGS localizer reports a covariance, so the comparison is against a softmax (non-evidential) variant of our method, point baselines wrapped in the best fixed covariance, and the ideal $\chi^2$ reference.
+
+\textbf{Metrics.} Accuracy: median translation (cm) and rotation ($^\circ$) error, and success rate at $5\,\mathrm{cm}/5^\circ$ and $2\,\mathrm{cm}/2^\circ$. \emph{Calibration} (our focus): (i) \emph{coverage} at the $68.3/95.4/99.7\%$ credibility levels, measured by whether the Mahalanobis error $d^2=\mathbf{e}^\top\bm\Sigma^{-1}\mathbf{e}$ falls inside the corresponding $\chi^2$ quantile, compared against the ideal $\chi^2$ curve as in~\cite{ksenet}; (ii) AUSE (sparsification error)~\cite{ause} for translation and rotation, testing whether ranking predictions by predicted uncertainty and discarding the worst monotonically reduces error; (iii) negative log-likelihood (NLL) of the ground-truth pose under \eqref{eq:gmm}; and (iv) expected calibration error (ECE)~\cite{guo_calibration}. Runtime is reported in Hz.
+
+\textbf{Implementation.} The map uses an open-vocabulary semantic 3DGS~\cite{gaussiangroup,opengaussian}; submaps are cubic regions sampled along the trajectory. The EDL segmentation head and retrieval encoders are trained with Adam (\TODO{lr, epochs, batch}); refinement is training-free with $N{=}\TODO{}$ iterations and $\lambda,\gamma$ in \eqref{eq:refine} set by grid search. The covariance temperature (Sec.~IV-D) is fitted once per scene on a held-out calibration split disjoint from all test queries, using the robust median estimator $\tau=\mathrm{med}(d^2)/\chi^2_{6,0.5}$. We deploy on an RTX 4090 for development and report embedded throughput on a Jetson Orin AGX. \TODO{state $k$, $\lambda_u$, $C$/vocabulary, segmentation backbone.}
+
+\subsection{Localization Accuracy}
+Table~\ref{tab:7scenes} reports median errors on 7Scenes. The strongest published point estimators are SplatHLoc~\cite{splathloc} (0.55\,cm/0.17$^\circ$) and the uncertainty-guided UGS-Loc~\cite{ugsloc} (0.64\,cm/0.21$^\circ$, $\approx$2.2\,s/query); our goal is to remain competitive with this group while \emph{additionally} producing a calibrated covariance that none of them reports. \TODO{1--2 sentences with measured numbers.} SGLoc~\cite{sgloc} reports 0.5\,cm/0.15$^\circ$ prior-free, but on an easier protocol (4/7 scenes under DSLAM ground truth, omitting Fire, Pumpkin, and Stairs) with unreleased code, so we compare against its protocol in the supplementary. \TODO{decide whether to keep the SGLoc-protocol comparison.}
+
+\begin{table*}[t]
+\centering
+\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the
+SfM pseudo-ground truth~\cite{brachmann2021dslam}. Lower is better. Rows
+marked $\dagger$ are pre-filled \emph{as reported in the cited papers} (GS-CPR
+and UGS-Loc refine an ACE prior; PoseNet/Marepo rows are the SfM re-evaluations
+of~\cite{gscpr}). iComMa~\cite{icomma} and SplatLoc~\cite{splatloc} publish no
+7Scenes results and are compared in the ablations and on 12Scenes,
+respectively; SGLoc~\cite{sgloc} evaluates only 4/7 scenes under DSLAM ground
+truth and is discussed in the text. \textcolor{red}{Ours: placeholders.}}
+\label{tab:7scenes}
+\setlength{\tabcolsep}{2.2pt}
+\footnotesize
+\begin{tabular}{lccccccc c}
+\toprule
+Method & Chess & Fire & Heads & Office & Pumpkin & Kitchen & Stairs & Avg.\\
+\midrule
+PoseNet~\cite{posenet}$^\dagger$ & 10/4.02 & 27/10.0 & 18/13.0 & 17/5.97 & 19/4.67 & 22/5.91 & 35/10.5 & 21/7.74\\
+Marepo~\cite{marepo}$^\dagger$ & 1.9/0.83 & 2.3/0.92 & 2.1/1.24 & 2.9/0.93 & 2.5/0.88 & 2.9/0.98 & 5.9/1.48 & 2.9/1.04\\
+DSAC*~\cite{dsacstar}$^\dagger$ & 0.5/0.17 & 0.8/0.28 & 0.5/0.34 & 1.2/0.34 & 1.2/0.28 & 0.7/0.21 & 2.7/0.78 & 1.1/0.34\\
+ACE~\cite{ace}$^\dagger$   & 0.5/0.18 & 0.8/0.33 & 0.5/0.33 & 1.0/0.29 & 1.0/0.22 & 0.8/0.20 & 2.9/0.81 & 1.1/0.34\\
+GSplatLoc~\cite{gsplatloc}$^\dagger$ & 0.4/0.13 & 0.9/0.29 & 0.9/0.50 & 1.4/0.32 & 1.4/0.26 & 1.3/0.29 & 3.4/0.82 & 1.4/0.37\\
+GS-CPR~\cite{gscpr}$^\dagger$ & 0.5/0.15 & 0.6/0.25 & 0.4/0.28 & 0.9/0.26 & 1.0/0.23 & 0.7/0.17 & 1.4/0.42 & 0.8/0.25\\
+STDLoc~\cite{stdloc}$^\dagger$ & 0.5/0.15 & 0.6/0.24 & 0.5/0.26 & 0.9/0.24 & 0.9/0.21 & 0.6/0.19 & 1.4/0.41 & 0.8/0.24\\
+UGS-Loc~\cite{ugsloc}$^\dagger$ & 0.4/0.12 & 0.5/0.20 & 0.4/0.25 & 0.8/0.22 & 0.8/0.18 & 0.6/0.15 & 1.1/0.33 & 0.6/0.21\\
+SplatHLoc~\cite{splathloc}$^\dagger$ & 0.3/0.09 & 0.4/0.19 & 0.3/0.18 & 0.6/0.18 & 0.7/0.15 & 0.5/0.12 & 1.0/0.30 & 0.6/0.17\\
+\textbf{\method{} (Ours)}  & \res & \res & \res & \res & \res & \res & \res & \res\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Uncertainty Calibration}
+This is the central evaluation: prior 3DGS localizers report no calibration numbers, so the comparison is against an ablated softmax variant of our own method and against the ideal $\chi^2$ reference. Fig.~\ref{fig:calib} and Table~\ref{tab:calib} summarize coverage, AUSE, NLL, and ECE. \TODO{state that coverage tracks the nominal credibility levels and that AUSE is low (uncertainty is informative).}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig3_calibration_template.pdf}
+\caption{Calibration diagnostics. (a) Reliability: the normalized squared error $d^2=\mathbf{e}^\top\bm\Sigma^{-1}\mathbf{e}$ follows $\chi^2$ when the covariance is calibrated; an overconfident softmax variant exhibits a heavy tail. (b) Sparsification: ranking queries by \emph{predicted} uncertainty (Ours) should track the oracle (rank by true error); AUSE is the area between them. \textcolor{red}{Template with synthetic data---regenerate with measured results using \texttt{fig3\_calibration\_template.py}.}}
+\label{fig:calib}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Calibration on ScanNet. Coverage should match the nominal level; AUSE/NLL/ECE lower is better. \textcolor{red}{Placeholders.}}
+\label{tab:calib}
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+ & Cov.\,$68$ & Cov.\,$95$ & Cov.\,$99.7$ & AUSE\,$\downarrow$ & NLL\,$\downarrow$\\
+Method & (\%) & (\%) & (\%) & (t/R) & \\
+\midrule
+Ideal $\chi^2$ ref.        & 68.3 & 95.4 & 99.7 & --   & --  \\
+Softmax variant            & \res & \res & \res & \res & \res\\
+\textbf{\method{} (Ours)}  & \res & \res & \res & \res & \res\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Robustness}
+We stress three axes with established protocols: (i) \emph{low-quality maps} built from $\sim$300 vs.\ $\sim$1000 RGB images~\cite{chukim}; (ii) \emph{input sparsity}, mapping from a reduced fraction of frames~\cite{e2bki}; and (iii) \emph{degraded semantics}, training the segmentation head on progressively less data~\cite{e2bki}. \TODO{report that \method{} degrades more gracefully and, crucially, that its uncertainty \emph{grows} appropriately as conditions worsen---i.e., the covariance is honest, not merely small.}
+
+\subsection{Ablation Study}
+Table~\ref{tab:ablation} isolates each component. \TODO{summarize: EDL vs softmax semantics; with/without the evidential gate \eqref{eq:gate}; with/without per-pixel uncertainty weighting \eqref{eq:refine}; Dempster vs.\ conflict-aware fusion (effective vacuity / Yager); point estimate vs.\ mixture ($K{=}1$ vs.\ $K{=}3$); raw vs.\ tempered Laplace covariance; tangent-Gaussian vs.\ Bingham rotation.}
+
+\begin{table}[t]
+\centering
+\caption{Ablation on ScanNet. \textcolor{red}{Placeholders.}}
+\label{tab:ablation}
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+Configuration & Med.\,err.\,$\downarrow$ & SR\,@5/5\,$\uparrow$ & AUSE\,$\downarrow$ & NLL\,$\downarrow$\\
+\midrule
+Full \method{}                         & \res & \res & \res & \res\\
+\quad $-$ evidential gate \eqref{eq:gate}      & \res & \res & \res & \res\\
+\quad $-$ per-pixel weight \eqref{eq:refine}   & \res & \res & \res & \res\\
+\quad Dempster fusion (no conflict term)        & \res & \res & \res & \res\\
+\quad softmax (no EDL)                  & \res & \res & \res & \res\\
+\quad point estimate ($K{=}1$, fixed $\bm\Sigma$) & \res & \res & \res & \res\\
+\quad raw Laplace (no temperature)      & \res & \res & \res & \res\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Runtime}
+\TODO{report per-stage timing on RTX 4090 and Jetson Orin AGX; note that the Laplace covariance reuses the refinement Jacobian and adds negligible overhead; contextualize against UGS-Loc's reported $\approx$2.2\,s/query (8 particles, 2 iterations)~\cite{ugsloc}.}
+
+%==============================================================================
+\section{Conclusion}
+We presented \method{}, a semantic 3D Gaussian Splatting localizer that returns a calibrated distribution over camera pose rather than a point. By giving the map and the query a shared evidential semantic representation, gating 2D--3D correspondences by vacuity, weighting the rendering-refinement residual per pixel with alpha-blended primitive vacuity, and recovering the pose covariance from the Gauss--Newton Hessian at the optimum, \method{} propagates uncertainty end-to-end into a Gaussian-mixture posterior on $SE(3)$ that condenses to a single Gaussian for Bayesian filtering. \TODO{one closing sentence on headline results.} Future work includes a fully open-set semantic extension, tighter coupling with the navigation filter, learned (rather than Laplace) covariance heads, and on-board flight experiments on an indoor MAV.
+
+%==============================================================================
+% References live in references.bib (BibTeX, IEEEtran style).
+% Compile: pdflatex -> bibtex -> pdflatex -> pdflatex (Overleaf does this for you).
+% Some 2025-26 preprint entries still carry \TODO{} author/title flags to verify.
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

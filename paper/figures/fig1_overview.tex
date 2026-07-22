@@ -1,0 +1,103 @@
+% Fig. 1 -- USGLoc pipeline overview (standalone TikZ -> vector PDF).
+% Compile: pdflatex fig1_overview.tex  ->  fig1_overview.pdf
+% In the paper: \includegraphics[width=\textwidth]{fig1_overview.pdf}
+\documentclass[tikz,border=3pt]{standalone}
+\usepackage{amsmath,amssymb}
+\usetikzlibrary{positioning,arrows.meta,backgrounds,fit,calc}
+
+\definecolor{ink}{HTML}{273746}
+\definecolor{uLow}{HTML}{1B9E77}
+\definecolor{uMid}{HTML}{E6AB02}
+\definecolor{uHigh}{HTML}{D95F02}
+\definecolor{coarseBg}{HTML}{EAF2FB}
+\definecolor{coarseLn}{HTML}{9DC3EC}
+\definecolor{fineBg}{HTML}{FDF1E6}
+\definecolor{fineLn}{HTML}{F0C28E}
+\definecolor{encBg}{HTML}{EEF6EE}
+\definecolor{encLn}{HTML}{B7D8B7}
+\definecolor{outBg}{HTML}{FFF3D6}
+\definecolor{outLn}{HTML}{D9A300}
+
+\begin{document}
+\begin{tikzpicture}[
+  font=\footnotesize\color{ink},
+  >={Stealth[length=2mm]},
+  mod/.style={draw=ink!75, fill=white, rounded corners=2pt, align=center,
+              minimum height=11mm, text width=21mm, inner sep=2pt, line width=0.45pt},
+  data/.style={draw=ink!45, fill=ink!4, rounded corners=1.5pt, align=center,
+               minimum height=11mm, text width=23mm, inner sep=2pt, font=\scriptsize\color{ink}},
+  io/.style={draw=ink!75, fill=ink!3, rounded corners=2pt, align=center, inner sep=3pt},
+  flow/.style={->, line width=0.7pt, draw=ink!85},
+  sub/.style={font=\scriptsize\color{ink!75}, align=center},
+  panlab/.style={font=\scriptsize\bfseries\color{ink!80}}
+]
+
+% ---------------- Inputs ----------------
+\node[io, text width=14mm, minimum height=11mm] (qimg) at (0,1.0) {Query\\image $I_q$};
+\node[io, text width=17mm, minimum height=14mm] (mapbox) at (0,-1.05) {};
+\node[sub, anchor=north, text width=17mm] at ([yshift=-0.6mm]mapbox.north) {Semantic\\3DGS map};
+% Gaussian "splats" inside the map box, colored by uncertainty
+\foreach \x/\y/\a/\c in {-0.42/-1.45/15/uLow, 0.04/-1.28/-25/uMid, 0.42/-1.5/40/uHigh,
+                         -0.08/-1.62/-10/uLow, 0.30/-1.34/28/uMid}{
+  \fill[\c!65, rotate around={\a:(\x,\y)}] (\x,\y) ellipse (2.3mm and 1mm);
+}
+
+% ---------------- Evidential encoding ----------------
+\node[mod, text width=24mm] (encQ) at (3.5,1.0) {Segment +\\evidential encode\ (3)};
+\node[data, text width=26mm] (primM) at (3.5,-1.05) {Evidential primitives\\$\mathcal{G}_i{=}(\mu,\Sigma,f,\mathbf{p},u)$};
+
+% ---------------- Coarse stage ----------------
+\node[mod, text width=22mm, minimum height=13mm] (match) at (7.0,-0.02)
+  {Uncertainty-\\weighted\\matching\ (6)};
+\node[mod, text width=20mm] (hyp) at (9.7,-0.02) {Top-$k$ pose\\hypotheses\\(mixture)};
+
+% ---------------- Fine stage ----------------
+\node[mod, text width=25mm, minimum height=14mm] (refine) at (12.6,-0.02)
+  {Rendering\\refinement\ (9)\\{\scriptsize per-pixel $w{=}e^{-\gamma U_r}$ (8)}};
+\node[mod, text width=20mm] (cov) at (15.4,-0.02) {Per-hyp.\\Laplace cov.\ (10)};
+
+% ---------------- Output ----------------
+\node[io, fill=outBg, draw=outLn, line width=1pt, text width=24mm, minimum height=14mm]
+  (post) at (18.4,-0.02)
+  {\textbf{Pose posterior}\\on $SE(3)$ (11)\\{\scriptsize condense $\rightarrow$ filter}};
+% covariance-ellipse motif below the output (conveys "distribution")
+\coordinate (pc) at ($(post.south)+(0,-0.5)$);
+\draw[outLn!80, rotate around={25:(pc)}, line width=0.5pt] (pc) ellipse (3.8mm and 2.1mm);
+\draw[outLn!80, rotate around={25:(pc)}, line width=0.5pt] (pc) ellipse (2.7mm and 1.5mm);
+\draw[outLn!80, rotate around={25:(pc)}, line width=0.5pt] (pc) ellipse (1.6mm and 0.9mm);
+
+% ---------------- Arrows ----------------
+\draw[flow] (qimg) -- (encQ);
+\draw[flow] (mapbox) -- (primM);
+\draw[flow] (encQ.east) -- ([yshift=2.2mm]match.west);
+\draw[flow] (primM.east) -- ([yshift=-2.2mm]match.west);
+\draw[flow] (match) -- (hyp);
+\draw[flow] (hyp) -- (refine);
+\draw[flow] (refine) -- (cov);
+\draw[flow] (cov) -- (post);
+
+% ---------------- Stage background panels ----------------
+\begin{scope}[on background layer]
+  \node[fill=encBg, draw=encLn, rounded corners=3pt, inner sep=3.2mm,
+        fit=(encQ)(primM)] (encpan) {};
+  \node[fill=coarseBg, draw=coarseLn, rounded corners=3pt, inner sep=3.2mm,
+        fit=(match)(hyp)] (cpan) {};
+  \node[fill=fineBg, draw=fineLn, rounded corners=3pt, inner sep=3.2mm,
+        fit=(refine)(cov)] (fpan) {};
+\end{scope}
+\node[panlab, anchor=south] at (encpan.north) {Evidential representation (Sec.~IV-A,B)};
+\node[panlab, anchor=south] at (cpan.north) {Coarse stage (Sec.~IV-C)};
+\node[panlab, anchor=south] at (fpan.north) {Fine stage (Sec.~IV-D)};
+
+% ---------------- Uncertainty legend ----------------
+\begin{scope}[shift={(7.2,-2.75)}]
+  \shade[left color=uLow, right color=uMid] (0,0) rectangle (1.6,0.28);
+  \shade[left color=uMid, right color=uHigh] (1.6,0) rectangle (3.2,0.28);
+  \draw[ink!50, line width=0.4pt] (0,0) rectangle (3.2,0.28);
+  \node[sub, anchor=east] at (-0.15,0.14) {vacuity $u$:};
+  \node[sub, anchor=north] at (0.05,-0.02) {low};
+  \node[sub, anchor=north] at (3.15,-0.02) {high};
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

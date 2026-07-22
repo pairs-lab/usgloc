@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usgloc"
+version = "0.1.0"
+description = "USGLoc: Uncertainty-aware semantic visual localization from 3D Gaussian Splatting"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "numpy",
+    "scipy",
+]
+
+[project.optional-dependencies]
+render = ["gsplat>=1.4"]
+realdata = ["open_clip_torch", "ultralytics"]  # CLIP encoder + FastSAM masks
+dev = ["pytest", "matplotlib"]
+
+[tool.setuptools.packages.find]
+include = ["usgloc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
