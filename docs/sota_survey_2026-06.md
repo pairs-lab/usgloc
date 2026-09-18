@@ -1,26 +1,4 @@
-# USGLoc — SOTA Survey & Gap Analysis for RA-L Revision (compiled 2026-06-10)
-
-Note: Section (C) of the input was empty; gap-threat analysis below is synthesized from the GAP-THREAT-ADJACENT entries embedded in (B) plus the verified entries in (A). Entries from (B) are **unverified** unless their inline notes say otherwise and are flagged where load-bearing.
-
----
-
-## 1. Gap verdict
-
-**The novelty claim survives, but only in a precisely scoped form.** No published or preprint work was found that outputs a **calibrated** SE(3) pose **distribution** from a **3D Gaussian Splatting map** for single-query relocalization, nor any that builds an **evidential (EDL + Dempster-Shafer) semantic 3DGS map** and propagates that uncertainty to the pose posterior. However, several works force a rewording of the claim:
-
-**Direct threats (must cite and differentiate explicitly):**
-
-1. **UGS-Loc (Kong et al., CVPR 2026, arXiv:2603.16538)** — verified high. THE closest competitor: 3DGS pose refinement with Monte Carlo pose-particle sampling + Fisher-information geometric uncertainty maps biasing PnP-RANSAC correspondence sampling. It kills any claim of "first uncertainty-aware localization on a 3DGS map." **Survival path:** UGS-Loc uses uncertainty only *internally* and outputs a point estimate (highest-weight particle or weighted mean — verified from paper text); no semantics, no evidential map, no calibration, no SE(3) distribution output. USGLoc must claim novelty at the *output* and *map* levels, not the "uses uncertainty" level.
-2. **VBGS-SLAM (arXiv:2604.02696, Apr 2026, unverified-B)** — variational Bayesian GS-SLAM maintaining posterior uncertainty over camera poses AND Gaussian map parameters. It is sequential SLAM tracking, not single-query relocalization in a prebuilt map, and reports no calibration. **Survival path:** scope the claim to *map-based (re)localization* (single-query, prebuilt map).
-3. **HAL-NeRF v2 (IEEE Access 2026, DOI 10.1109/ACCESS.2026.3659994, unverified-B)** — particle-filter pose belief, partially GS-rendered training views; outputs only a MAP point estimate, no covariance/calibration. Cite and differentiate.
-4. **CityLoc (arXiv:2501.08982, unverified-B)** — generates 6DoF pose *distributions* (diffusion) with 3DGS-based re-ranking. Text-conditioned localization, not image-based relocalization; distribution is an uncalibrated sampler. Cite to protect the "first *calibrated* distribution from a 3DGS map" wording.
-5. **CROSS (arXiv:2605.02227, May 2026, unverified-B)** — maintains *Gaussian-mixture pose beliefs* under furniture rearrangement, but over a topological keyframe map, not 3DGS, and uncalibrated. Cite to scope "Gaussian-mixture posterior" novelty to GS-map relocalization.
-6. **Evidential-localization prior art:** Chen et al. (ICRA 2024, arXiv:2310.06984, EDL scene-coordinate regression with NeRF-derived uncertainty) and SCREP (arXiv:2507.07467, EDL SCR + IMU fusion) mean USGLoc **cannot claim "first evidential learning for localization."** Differentiate via: 3DGS map, DS evidence combination, propagation through differentiable rendering, calibrated SE(3) GMM output.
-7. **Calibration wording collision:** Horseshoe Splatting (ICLR 2026 submission, unverified-B) uses "calibrated" for *map/rendering* uncertainty in 3DGS. Phrase USGLoc's claim as "calibrated *pose-distribution*" calibration (e.g., via ECE/NLL on pose error), and check that paper's acceptance status before submission.
-8. **Theory adjacency:** the differentiable-rendering Cramér-Rao bound paper (arXiv:2510.21785, unverified-B, venue claim unverified) derives pose covariance from a differentiable renderer — methodologically adjacent to USGLoc's Laplace covariance. It is an analysis/bound, not a localizer; cite it as theoretical support.
-
-**Recommended claim wording:**
-> "To our knowledge, USGLoc is the first visual relocalization system that (i) builds an evidential (EDL + Dempster-Shafer) semantic 3DGS map, (ii) propagates map-level semantic and geometric uncertainty through retrieval, matching, and differentiable-rendering refinement, and (iii) outputs a *calibrated* Gaussian-mixture pose posterior on SE(3). Prior 3DGS localizers either ignore uncertainty entirely [GSplatLoc, STDLoc, SplatHLoc, GS-CPR, ...], use it only internally and emit a point estimate [UGS-Loc, Hi2-GSLoc, GeomGS], or maintain uncalibrated pose beliefs over non-GS or SLAM settings [Loc-NeRF, NuRF, MCLoc, HAL-NeRF, VBGS-SLAM, CROSS]."
+IU i) propagates map-level semantic and geometric uncertainty through retrieval, matching, and differentiable-rendering refinement, and (iii) outputs a *calibrated* Gaussian-mixture pose posterior on SE(3). Prior 3DGS localizers either ignore uncertainty entirely [GSplatLoc, STDLoc, SplatHLoc, GS-CPR, ...], use it only internally and emit a point estimate [UGS-Loc, Hi2-GSLoc, GeomGS], or maintain uncalibrated pose beliefs over non-GS or SLAM settings [Loc-NeRF, NuRF, MCLoc, HAL-NeRF, VBGS-SLAM, CROSS]."
 
 ---
 
