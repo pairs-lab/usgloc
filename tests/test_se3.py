@@ -45,3 +45,27 @@ def test_rotation_angle_deg():
     phi = torch.tensor([0.0, 0.0, torch.pi / 6], dtype=torch.float64)
     R = se3.so3_exp(phi)
     assert abs(float(se3.rotation_angle_deg(R)) - 30.0) < 1e-6
+
+
+def test_quat_to_rotmat_known_values():
+    # Identity quaternion (w, x, y, z) = (1, 0, 0, 0).
+    R = se3.quat_to_rotmat(torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=torch.float64))
+    assert torch.allclose(R, torch.eye(3, dtype=torch.float64), atol=1e-12)
+    # 90 degrees about z.
+    s = torch.sin(torch.tensor(torch.pi / 4, dtype=torch.float64))
+    c = torch.cos(torch.tensor(torch.pi / 4, dtype=torch.float64))
+    R = se3.quat_to_rotmat(torch.stack([c, 0 * s, 0 * s, s]))
+    expect = torch.tensor([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+                          dtype=torch.float64)
+    assert torch.allclose(R, expect, atol=1e-12)
+
+
+def test_quat_to_rotmat_orthonormal_and_normalizing():
+    torch.manual_seed(4)
+    q = torch.randn(16, 4, dtype=torch.float64) * 3.0  # deliberately unnormalized
+    R = se3.quat_to_rotmat(q)
+    eye = torch.eye(3, dtype=torch.float64).expand(16, 3, 3)
+    assert torch.allclose(R @ R.transpose(-1, -2), eye, atol=1e-10)
+    assert torch.allclose(torch.linalg.det(R), torch.ones(16, dtype=torch.float64), atol=1e-10)
+    # Scaling a quaternion must not change the rotation.
+    assert torch.allclose(R, se3.quat_to_rotmat(q * 2.5), atol=1e-12)

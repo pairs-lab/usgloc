@@ -183,6 +183,8 @@ def make_submaps(
     emap: EvidentialMap,
     anchor_poses: Sequence[torch.Tensor],
     radius: float = 3.0,
+    camera=None,
+    near: float = 0.05,
 ) -> None:
     """Partition the map into overlapping submaps along the trajectory.
 
@@ -190,13 +192,33 @@ def make_submaps(
     the primitives within ``radius`` of the camera centre, following the
     submap retrieval design of SGLoc.  The anchor pose doubles as the coarse
     pose hypothesis returned by retrieval.
+
+    Args:
+        camera: optional :class:`usgloc.rendering.Camera`.  When given, the
+            submap is additionally FRUSTUM-CULLED: only primitives whose
+            centroid projects into the anchor view (in front of the camera
+            and inside the image bounds) are kept.  Without this, in a room
+            smaller than ``radius`` every submap contains nearly every
+            primitive, all reference descriptors collapse onto one vector,
+            and retrieval training is stuck at chance (observed on chess:
+            pairwise descriptor cosine 0.9996-1.0 and InfoNCE pinned at
+            ln(batch)).  Culling is resolution-independent (only the FOV
+            matters), so any resolution of the same intrinsics works.
     """
     mus = torch.stack([g.mu for g in emap.primitives])
     submaps = []
     for T in anchor_poses:
         cam_center = (-T[:3, :3].T @ T[:3, 3:4]).squeeze(-1)
         d = torch.linalg.norm(mus - cam_center, dim=-1)
-        inside = torch.nonzero(d < radius, as_tuple=False).squeeze(-1)
+        keep = d < radius
+        if camera is not None:
+            p_cam = mus @ T[:3, :3].T + T[:3, 3]
+            z = p_cam[:, 2]
+            u = camera.fx * p_cam[:, 0] / z.clamp(min=near) + camera.cx
+            v = camera.fy * p_cam[:, 1] / z.clamp(min=near) + camera.cy
+            keep = keep & (z > near) & (u >= 0) & (u < camera.width) \
+                & (v >= 0) & (v < camera.height)
+        inside = torch.nonzero(keep, as_tuple=False).squeeze(-1)
         if inside.numel() == 0:
             continue
         submaps.append(Submap(anchor_pose=T.clone(), primitive_idx=inside))

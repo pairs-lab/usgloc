@@ -132,13 +132,28 @@ class TorchSplatRenderer:
 class GsplatRenderer:
     """gsplat-backed renderer; vacuity rendered as a 4th color channel."""
 
-    def __init__(self, near: float = 0.05):
+    def __init__(self, near: float = 0.05, eigh_chunk: int = 65536):
         self.near = near
+        self.eigh_chunk = eigh_chunk
+        # The map is fixed during localization, so its covariance
+        # decomposition is computed once and cached (keyed by storage
+        # pointer + size); recomputing it per render call would dominate the
+        # refinement loop.
+        self._cov_cache = None
 
     @staticmethod
-    def _cov_to_quat_scale(covs: torch.Tensor):
-        """Decompose (N, 3, 3) covariances into unit quaternions and scales."""
-        evals, evecs = torch.linalg.eigh(covs)
+    def _cov_to_quat_scale(covs: torch.Tensor, chunk: int = 65536):
+        """Decompose (N, 3, 3) covariances into unit quaternions and scales.
+
+        The eigh runs on CPU in float64: cusolver's batched solver rejects
+        large batches outright (CUSOLVER_STATUS_INVALID_VALUE at 64k-330k
+        matrices, torch 2.11/cu128), and since render() caches this
+        decomposition per map, the one-time CPU cost is irrelevant.
+        """
+        dev, dt = covs.device, covs.dtype
+        evals, evecs = torch.linalg.eigh(covs.detach().cpu().to(torch.float64))
+        evals = evals.to(device=dev, dtype=dt)
+        evecs = evecs.to(device=dev, dtype=dt)
         # Ensure right-handed rotation matrices.
         det = torch.linalg.det(evecs)
         evecs = evecs * torch.where(det < 0, -1.0, 1.0)[:, None, None]
@@ -166,7 +181,17 @@ class GsplatRenderer:
     ) -> Dict[str, torch.Tensor]:
         from gsplat import rasterization
 
-        quats, scales = self._cov_to_quat_scale(covs)
+        key = (covs.data_ptr(), covs.shape[0])
+        if (
+            self._cov_cache is not None
+            and self._cov_cache[0] == key
+            and not covs.requires_grad
+        ):
+            _, quats, scales = self._cov_cache
+        else:
+            quats, scales = self._cov_to_quat_scale(covs, self.eigh_chunk)
+            if not covs.requires_grad:
+                self._cov_cache = (key, quats, scales)
         if vacuity is None:
             vacuity = torch.zeros_like(opacities)
         feats = torch.cat([colors, vacuity[:, None]], dim=-1)  # (N, 4)

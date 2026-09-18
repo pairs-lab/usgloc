@@ -138,3 +138,22 @@ def rotation_angle_deg(R_err: torch.Tensor) -> torch.Tensor:
     """Geodesic rotation angle of (..., 3, 3) rotation matrices, in degrees."""
     phi = so3_log(R_err)
     return torch.linalg.norm(phi, dim=-1) * (180.0 / torch.pi)
+
+
+def quat_to_rotmat(q: torch.Tensor) -> torch.Tensor:
+    """Unit quaternion(s) in (w, x, y, z) order, (..., 4) -> (..., 3, 3).
+
+    The input is normalized internally, so raw values parsed from pose files
+    (e.g. COLMAP / visloc pseudo-GT lines) can be passed directly.
+    """
+    q = q / torch.linalg.norm(q, dim=-1, keepdim=True)
+    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+    R = torch.stack(
+        [
+            1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+            2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
+            2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y),
+        ],
+        dim=-1,
+    )
+    return R.reshape(q.shape[:-1] + (3, 3))

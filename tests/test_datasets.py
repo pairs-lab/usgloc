@@ -173,3 +173,156 @@ def test_run_7scenes_help_exits_zero():
     assert proc.returncode == 0, proc.stderr
     for flag in ("--root", "--map", "--anchor-stride", "--temperature-split", "--encoders"):
         assert flag in proc.stdout
+
+
+# --------------------------------------------------------------------------
+# SfM pseudo-GT mode (Brachmann et al., ICCV'21 pose files)
+# --------------------------------------------------------------------------
+
+SFM_FOCAL = 526.22
+
+
+@pytest.fixture
+def sfm_root(fake_root, tmp_path):
+    """Adds pgt-style SfM pose files next to the fake 7Scenes tree.
+
+    Covers train seq-01 fully; test seq-02 misses frame 1 (unregistered).
+    """
+    root, _ = fake_root
+    pgt_dir = tmp_path / "pgt" / "sfm" / "7scenes"
+    pgt_dir.mkdir(parents=True)
+    g = torch.Generator().manual_seed(7)
+    cw_poses = {}
+    for split, seq, frame_ids in (("train", "seq-01", [0, 1, 2]),
+                                  ("test", "seq-02", [0, 2])):
+        lines = []
+        for f in frame_ids:
+            q = torch.randn(4, generator=g, dtype=torch.float64)
+            q = q / torch.linalg.norm(q)
+            t = torch.randn(3, generator=g, dtype=torch.float64)
+            T_cw = torch.eye(4, dtype=torch.float64)
+            T_cw[:3, :3] = se3.quat_to_rotmat(q)
+            T_cw[:3, 3] = t
+            cw_poses[(seq, f)] = T_cw.to(torch.float32)
+            vals = " ".join(f"{v:.9f}" for v in (*q.tolist(), *t.tolist()))
+            lines.append(f"{seq}/frame-{f:06d}.color.png {vals} {SFM_FOCAL}")
+        (pgt_dir / f"office_{split}.txt").write_text("\n".join(lines) + "\n")
+    return root, pgt_dir, cw_poses
+
+
+def test_sfm_poses_override_dslam(sfm_root):
+    root, pgt_dir, cw_poses = sfm_root
+    test = SevenScenes(root, "office", split="test", sfm_pose_dir=pgt_dir)
+    # frame 1 is not in the SfM file -> dropped and counted.
+    assert [r.frame_id for r in test.frames] == [0, 2]
+    assert test.n_unregistered == 1
+    assert test.focal == pytest.approx(SFM_FOCAL)
+    for rec in test.frames:
+        # pose_cw must equal the world-to-camera pose written to the file.
+        assert torch.allclose(rec.pose_cw, cw_poses[(rec.seq, rec.frame_id)],
+                              atol=1e-5)
+    train = SevenScenes(root, "office", split="train", sfm_pose_dir=pgt_dir)
+    assert len(train) == 3 and train.n_unregistered == 0
+
+
+def test_sfm_scene_camera_uses_pgt_focal(sfm_root):
+    root, pgt_dir, _ = sfm_root
+    ds = SevenScenes(root, "office", split="test", sfm_pose_dir=pgt_dir)
+    cam = ds.scene_camera(320, 240)
+    assert cam.fx == pytest.approx(SFM_FOCAL * 0.5)
+    assert cam.fy == pytest.approx(SFM_FOCAL * 0.5)
+    assert (cam.cx, cam.cy) == (160.0, 120.0)
+    # Without SfM mode, scene_camera falls back to the Kinect constants.
+    plain = SevenScenes(root, "office", split="test")
+    assert plain.scene_camera(640, 480).fx == KINECT_FX
+
+
+def test_sfm_missing_or_malformed_file(sfm_root):
+    root, pgt_dir, _ = sfm_root
+    with pytest.raises(FileNotFoundError):
+        SevenScenes(root, "office", split="test", sfm_pose_dir=pgt_dir / "nope")
+    bad = pgt_dir / "office_test.txt"
+    bad.write_text("seq-02/frame-000000.color.png 1 0 0 0 0 0 0\n")  # 8 fields
+    with pytest.raises(ValueError):
+        SevenScenes(root, "office", split="test", sfm_pose_dir=pgt_dir)
+
+
+# --------------------------------------------------------------------------
+# 12Scenes layout (TwelveScenes)
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def twelve_root(tmp_path):
+    """Fake 12Scenes tree: apt1/kitchen, 4 frames (first 2 = test)."""
+    pytest.importorskip("PIL")
+    import numpy as np
+    from PIL import Image
+
+    from usgloc.datasets import TwelveScenes  # noqa: F401  (import check)
+
+    scene = tmp_path / "apt1" / "kitchen"
+    data = scene / "data"
+    data.mkdir(parents=True)
+    (scene / "split.txt").write_text("sequence0 [frames=2]\nsequence1 [frames=2]\n")
+    (scene / "info.txt").write_text(
+        "m_colorWidth = 128\nm_colorHeight = 96\n"
+        "m_depthWidth = 64\nm_depthHeight = 48\n"
+        "m_calibrationColorIntrinsic = 120 0 64 0 0 120 48 0 0 0 1 0 0 0 0 1\n"
+        "m_calibrationDepthIntrinsic = 60 0 32 0 0 60 24 0 0 0 1 0 0 0 0 1\n"
+    )
+    poses = {}
+    for f in range(4):
+        T = se3.se3_exp(0.1 * torch.randn(6, generator=torch.Generator().manual_seed(f)))
+        poses[f] = T
+        lines = [" ".join(f"{v:.9f}" for v in row) for row in T.tolist()]
+        (data / f"frame-{f:06d}.pose.txt").write_text("\n".join(lines) + "\n")
+        Image.fromarray(np.full((96, 128, 3), 100, dtype=np.uint8)).save(
+            data / f"frame-{f:06d}.color.jpg")
+        Image.fromarray(np.full((48, 64), 1500, dtype=np.uint16)).save(
+            data / f"frame-{f:06d}.depth.png")
+    return tmp_path, poses
+
+
+def test_twelvescenes_split_and_intrinsics(twelve_root):
+    from usgloc.datasets import TwelveScenes
+
+    root, poses = twelve_root
+    test = TwelveScenes(root, "apt1/kitchen", split="test")
+    train = TwelveScenes(root, "apt1/kitchen", split="train")
+    assert [r.frame_id for r in test.frames] == [0, 1]
+    assert [r.frame_id for r in train.frames] == [2, 3]
+    assert torch.allclose(test[0].pose_c2w, poses[0], atol=1e-6)
+    assert test.color_width == 128 and test.color_height == 96
+    cam = test.scene_camera()  # native color intrinsics from info.txt
+    assert (cam.fx, cam.cx, cam.cy) == (120.0, 64.0, 48.0)
+    dcam = test.depth_camera()
+    assert (dcam.fx, dcam.width, dcam.height) == (60.0, 64, 48)
+    img = test.load_image(0)
+    assert img.shape == (96, 128, 3)
+
+
+def test_twelvescenes_sfm_mode(twelve_root):
+    from usgloc.datasets import TwelveScenes
+
+    root, _ = twelve_root
+    pgt = root / "pgt12"
+    pgt.mkdir()
+    g = torch.Generator().manual_seed(9)
+    lines = []
+    cw = {}
+    for f in (0,):  # frame 1 left unregistered
+        q = torch.randn(4, generator=g, dtype=torch.float64)
+        t = torch.randn(3, generator=g, dtype=torch.float64)
+        T = torch.eye(4, dtype=torch.float64)
+        T[:3, :3] = se3.quat_to_rotmat(q / q.norm())
+        T[:3, 3] = t
+        cw[f] = T.to(torch.float32)
+        vals = " ".join(f"{v:.9f}" for v in (*(q / q.norm()).tolist(), *t.tolist()))
+        lines.append(f"data/frame-{f:06d}.color.jpg {vals} 118.5")
+    (pgt / "apt1_kitchen_test.txt").write_text("\n".join(lines) + "\n")
+    ds = TwelveScenes(root, "apt1/kitchen", split="test", sfm_pose_dir=pgt)
+    assert len(ds) == 1 and ds.n_unregistered == 1
+    assert ds.focal == pytest.approx(118.5)
+    assert torch.allclose(ds[0].pose_cw, cw[0], atol=1e-5)
+    cam = ds.scene_camera(64, 48)  # half the native 128x96
+    assert cam.fx == pytest.approx(118.5 * 0.5)
