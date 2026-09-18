@@ -1,8 +1,18 @@
-% Fig. 1 -- USGLoc pipeline overview (standalone TikZ -> vector PDF).
-% Compile: pdflatex fig1_overview.tex  ->  fig1_overview.pdf
-% In the paper: \includegraphics[width=\textwidth]{fig1_overview.pdf}
+% Fig. 1 -- USGLoc overview (standalone TikZ -> vector PDF).
+% Compile standalone: pdflatex fig1_overview.tex
+% In the paper: \resizebox{\textwidth}{!}{\input{figures/fig1_overview}}
+%
+% Design (after the STDLoc / UGS-Loc / GS-CPR / SplatHLoc figure study):
+%  * slim grey OFFLINE strip (evidential mapping) on the left;
+%  * Band A: the online pose flow (query -> matching -> hypotheses ->
+%    refinement -> calibrated posterior);
+%  * Band B: the EVIDENCE channel in gold underneath, injected upward into
+%    Band A at exactly three points (gate, per-pixel weight, temperature) --
+%    the paper's thesis as the figure's macro-structure;
+%  * every arrow carries an artifact glyph and a math symbol from the text;
+%  * two accent colors only: gold = evidence, blue = pose distributions.
 \documentclass[tikz,border=3pt]{standalone}
-\usepackage{amsmath,amssymb}
+\usepackage{amsmath,amssymb,bm}
 \usetikzlibrary{positioning,arrows.meta,backgrounds,fit,calc}
 
 \definecolor{ink}{HTML}{273746}
@@ -17,87 +27,173 @@
 \definecolor{encLn}{HTML}{B7D8B7}
 \definecolor{outBg}{HTML}{FFF3D6}
 \definecolor{outLn}{HTML}{D9A300}
+\definecolor{poseC}{HTML}{2E6FAC}
 
 \begin{document}
 \begin{tikzpicture}[
   font=\footnotesize\color{ink},
   >={Stealth[length=2mm]},
   mod/.style={draw=ink!75, fill=white, rounded corners=2pt, align=center,
-              minimum height=11mm, text width=21mm, inner sep=2pt, line width=0.45pt},
-  data/.style={draw=ink!45, fill=ink!4, rounded corners=1.5pt, align=center,
-               minimum height=11mm, text width=23mm, inner sep=2pt, font=\scriptsize\color{ink}},
-  io/.style={draw=ink!75, fill=ink!3, rounded corners=2pt, align=center, inner sep=3pt},
-  flow/.style={->, line width=0.7pt, draw=ink!85},
+              minimum height=10mm, inner sep=2.5pt, line width=0.5pt},
+  flow/.style={->, line width=0.7pt, draw=ink!80},
+  evflow/.style={->, line width=1.0pt, draw=outLn},
+  inject/.style={->, line width=1.0pt, draw=outLn, dashed},
+  sym/.style={font=\scriptsize\color{ink}, inner sep=1.5pt, fill=white,
+              fill opacity=0.85, text opacity=1},
   sub/.style={font=\scriptsize\color{ink!75}, align=center},
   panlab/.style={font=\scriptsize\bfseries\color{ink!80}}
 ]
 
-% ---------------- Inputs ----------------
-\node[io, text width=14mm, minimum height=11mm] (qimg) at (0,1.0) {Query\\image $I_q$};
-\node[io, text width=17mm, minimum height=14mm] (mapbox) at (0,-1.05) {};
-\node[sub, anchor=north, text width=17mm] at ([yshift=-0.6mm]mapbox.north) {Semantic\\3DGS map};
-% Gaussian "splats" inside the map box, colored by uncertainty
-\foreach \x/\y/\a/\c in {-0.42/-1.45/15/uLow, 0.04/-1.28/-25/uMid, 0.42/-1.5/40/uHigh,
-                         -0.08/-1.62/-10/uLow, 0.30/-1.34/28/uMid}{
-  \fill[\c!65, rotate around={\a:(\x,\y)}] (\x,\y) ellipse (2.3mm and 1mm);
+% ============================ OFFLINE STRIP =================================
+% mapping frames glyph
+\foreach \dx/\dy in {0.14/0.14, 0.07/0.07, 0/0}{
+  \draw[ink!55, fill=ink!6, line width=0.4pt]
+    (0.25+\dx, 1.05+\dy) rectangle +(1.05, 0.7);
 }
+\node[sub, anchor=north] at (0.95, 0.92) {mapping\\frames};
+\draw[flow] (0.95, 0.55) -- (0.95, 0.1);
+\node[mod, text width=23mm, font=\scriptsize\color{ink}] (edlhead) at (0.95,-0.42)
+  {semantic 3DGS\\ + EDL head (3)};
+\draw[flow] (0.95,-0.98) -- node[sym, right=0mm] {$(\mathbf{b},u)$} (0.95,-1.45);
+% evidential map: splats colored by vacuity
+\foreach \x/\y/\a/\c in {0.45/-2.0/15/uLow, 0.95/-1.8/-25/uMid, 1.5/-2.05/40/uHigh,
+                         0.7/-2.35/-10/uLow, 1.3/-2.35/28/uLow}{
+  \fill[\c!70, rotate around={\a:(\x,\y)}] (\x,\y) ellipse (2.6mm and 1.1mm);
+}
+\node[sub, anchor=north] at (0.98,-2.55)
+  {evidential map\\$\mathcal{M}{=}\{\mathcal{G}_i\}$};
 
-% ---------------- Evidential encoding ----------------
-\node[mod, text width=24mm] (encQ) at (3.5,1.0) {Segment +\\evidential encode\ (3)};
-\node[data, text width=26mm] (primM) at (3.5,-1.05) {Evidential primitives\\$\mathcal{G}_i{=}(\mu,\Sigma,f,\mathbf{p},u)$};
+% ============================== BAND A ======================================
+% query
+\draw[ink!70, fill=ink!4, line width=0.5pt] (3.35, 0.62) rectangle +(1.15, 0.78);
+\node[sub, anchor=north] at (3.92, 0.55) {query $I_q$};
 
-% ---------------- Coarse stage ----------------
-\node[mod, text width=22mm, minimum height=13mm] (match) at (7.0,-0.02)
-  {Uncertainty-\\weighted\\matching\ (6)};
-\node[mod, text width=20mm] (hyp) at (9.7,-0.02) {Top-$k$ pose\\hypotheses\\(mixture)};
+% evidential encoding
+\node[mod, text width=25mm] (enc) at (6.05, 1.0)
+  {Evidential\\encoding (IV-B)\\{\scriptsize $\mathcal{Q}_j{=}(\mathbf{x},a,f^q,\mathbf{p}^q,u^q)$}};
+\draw[flow] (4.5, 1.0) -- (enc.west);
 
-% ---------------- Fine stage ----------------
-\node[mod, text width=25mm, minimum height=14mm] (refine) at (12.6,-0.02)
-  {Rendering\\refinement\ (9)\\{\scriptsize per-pixel $w{=}e^{-\gamma U_r}$ (8)}};
-\node[mod, text width=20mm] (cov) at (15.4,-0.02) {Per-hyp.\\Laplace cov.\ (10)};
+% gated matching, with match-line glyph showing gating
+\node[mod, text width=24mm, minimum height=13mm] (match) at (9.35, 1.0)
+  {Vacuity-gated\\matching (IV-C)};
+\draw[flow] (enc.east) -- node[sym, above=0mm] {$d^q_j$} (match.west);
+% match glyph below the box: two frames, kept (green) and gated-out (orange) matches
+\begin{scope}[shift={(8.55, 0.28)}]
+  \draw[ink!55, line width=0.4pt] (0,0) rectangle +(0.5,0.36);
+  \draw[ink!55, line width=0.4pt] (1.1,0) rectangle +(0.5,0.36);
+  \draw[uLow, line width=0.5pt]  (0.5,0.28) -- (1.1,0.30);
+  \draw[uLow, line width=0.5pt]  (0.5,0.16) -- (1.1,0.12);
+  \draw[uHigh, line width=0.5pt, dash pattern=on 1pt off 1pt] (0.5,0.05) -- (1.1,0.22);
+\end{scope}
 
-% ---------------- Output ----------------
-\node[io, fill=outBg, draw=outLn, line width=1pt, text width=24mm, minimum height=14mm]
-  (post) at (18.4,-0.02)
-  {\textbf{Pose posterior}\\on $SE(3)$ (11)\\{\scriptsize condense $\rightarrow$ filter}};
-% covariance-ellipse motif below the output (conveys "distribution")
-\coordinate (pc) at ($(post.south)+(0,-0.5)$);
-\draw[outLn!80, rotate around={25:(pc)}, line width=0.5pt] (pc) ellipse (3.8mm and 2.1mm);
-\draw[outLn!80, rotate around={25:(pc)}, line width=0.5pt] (pc) ellipse (2.7mm and 1.5mm);
-\draw[outLn!80, rotate around={25:(pc)}, line width=0.5pt] (pc) ellipse (1.6mm and 0.9mm);
+% top-k hypotheses: three fading camera frusta
+\begin{scope}[shift={(12.15, 0.72)}]
+  \foreach \dx/\op in {0/0.9, 0.42/0.55, 0.84/0.3}{
+    \begin{scope}[shift={(\dx,0)}, opacity=\op]
+      \fill[poseC!25] (0,0.66) -- (0,0.10) -- (0.5,0.38) -- cycle;
+      \draw[poseC, line width=0.6pt] (0,0.66) -- (0,0.10) -- (0.5,0.38) -- cycle;
+    \end{scope}
+  }
+\end{scope}
+\node[sub, anchor=north, text width=24mm] (hyplab) at (12.85, 0.62)
+  {top-$k$ hypotheses\\$\{(T^0_k,\tilde\pi_k)\}$};
+\draw[flow] (match.east) -- node[sym, above=0mm] {$s_{ij}$ (6)} (12.0, 1.0);
 
-% ---------------- Arrows ----------------
-\draw[flow] (qimg) -- (encQ);
-\draw[flow] (mapbox) -- (primM);
-\draw[flow] (encQ.east) -- ([yshift=2.2mm]match.west);
-\draw[flow] (primM.east) -- ([yshift=-2.2mm]match.west);
-\draw[flow] (match) -- (hyp);
-\draw[flow] (hyp) -- (refine);
-\draw[flow] (refine) -- (cov);
-\draw[flow] (cov) -- (post);
+% vacuity-weighted refinement
+\node[mod, text width=26mm, minimum height=13mm] (refine) at (16.0, 1.0)
+  {Vacuity-weighted\\refinement (IV-D)\\{\scriptsize $E(\bm{\xi})$ (9)}};
+\draw[flow] (13.85, 1.0) -- (refine.west);
 
-% ---------------- Stage background panels ----------------
+% ---- calibrated pose head ----
+\node[mod, text width=21mm] (lap) at (19.35, 1.0)
+  {Laplace cov.\ (10)\\{\scriptsize $\bm{\Sigma}_{\bm{\xi},k}\!\leftarrow\!\tau\hat\sigma^2(J^{\!\top}\!WJ)^{-1}$}};
+\draw[flow] (refine.east) -- node[sym, above=0mm] {$\bm{\xi}^\star_k$} (lap.west);
+% GMM glyph: overlapping covariance ellipses
+\begin{scope}[shift={(21.75, 0.82)}]
+  \draw[poseC!85, line width=0.6pt, rotate around={18:(0.32,0.28)}]
+    (0.32,0.28) ellipse (4.6mm and 2.4mm);
+  \draw[poseC!85, line width=0.6pt, rotate around={-12:(0.95,0.46)}]
+    (0.95,0.46) ellipse (3.2mm and 1.8mm);
+  \fill[poseC] (0.32,0.28) circle (0.5pt);
+  \fill[poseC] (0.95,0.46) circle (0.5pt);
+\end{scope}
+\node[sub, anchor=north, text width=26mm] at (22.4, 0.55)
+  {$p(T|I_q,\mathcal{M})$ (12)\\condense $\rightarrow$ EKF};
+\draw[flow] (lap.east) -- (21.15, 1.0);
+
+% ============================== BAND B ======================================
+% opinion simplex glyph
+\begin{scope}[shift={(5.55,-2.65)}]
+  \draw[outLn, line width=0.6pt] (0,0) -- (1.0,0) -- (0.5,0.8) -- cycle;
+  \fill[outLn!45] (0.42,0.30) circle (1.6mm);
+  \node[sub, anchor=north] at (0.5,-0.08) {opinion $(\mathbf{b},u)$};
+\end{scope}
+% DST fusion glyph: two small simplexes -> one
+\begin{scope}[shift={(8.55,-2.45)}]
+  \draw[outLn!70, line width=0.5pt] (0,0.12) -- (0.44,0.12) -- (0.22,0.48) -- cycle;
+  \draw[outLn!70, line width=0.5pt] (0,-0.42) -- (0.44,-0.42) -- (0.22,-0.06) -- cycle;
+  \node[font=\scriptsize\color{outLn}] at (0.68,-0.02) {$\oplus$};
+  \draw[outLn, line width=0.6pt] (0.9,-0.28) -- (1.5,-0.28) -- (1.2,0.22) -- cycle;
+  \node[sub, anchor=north, text width=34mm] at (0.78,-0.56)
+    {conflict-aware fusion (5)\\$\tilde{u}{=}\min(1,u{+}\bar\eta)$};
+\end{scope}
+% vacuity heatmap glyph U_r
+\begin{scope}[shift={(15.4,-2.65)}]
+  \foreach \i/\c in {0/uLow, 1/uLow, 2/uMid, 3/uHigh}{
+    \foreach \j/\o in {0/55, 1/80, 2/40}{
+      \fill[\c!\o] (0.3*\i, 0.24*\j) rectangle +(0.3, 0.24);
+    }
+  }
+  \draw[ink!55, line width=0.4pt] (0,0) rectangle (1.2,0.72);
+  \node[sub, anchor=north] at (0.6,-0.08) {rendered vacuity $U_r$ (8)};
+\end{scope}
+% temperature chip
+\node[mod, draw=outLn, text width=16mm, font=\scriptsize\color{ink}] (temp) at (19.35,-2.4)
+  {temperature $\tau$\\(held-out fit)};
+
+% the gold evidence rail
+\draw[evflow] (2.1,-2.1) -- node[sym, above=0mm] {$u$} (5.45,-2.35);
+\draw[evflow] (6.75,-2.35) -- (8.4,-2.5);
+\draw[evflow] (10.35,-2.5) -- node[sym, above=0mm] {$\tilde{u}_i$ per splat} (15.3,-2.35);
+\draw[evflow] (16.7,-2.35) -- (temp.west);
+
+% three upward injections into Band A
+\draw[inject] (9.35,-1.95) -- node[sym, right=0.2mm]
+  {gate $e^{-\lambda_u(\tilde{u}^G_i+u^q_j)}$} (match.south);
+\draw[inject] (16.0,-2.0) -- node[sym, right=0.2mm]
+  {$w{=}e^{-\gamma U_r}$} (refine.south);
+\draw[inject] (temp.north) -- node[sym, right=0.2mm] {$\tau$} (lap.south);
+
+% ======================= PANELS (background layer) ==========================
 \begin{scope}[on background layer]
-  \node[fill=encBg, draw=encLn, rounded corners=3pt, inner sep=3.2mm,
-        fit=(encQ)(primM)] (encpan) {};
-  \node[fill=coarseBg, draw=coarseLn, rounded corners=3pt, inner sep=3.2mm,
-        fit=(match)(hyp)] (cpan) {};
-  \node[fill=fineBg, draw=fineLn, rounded corners=3pt, inner sep=3.2mm,
-        fit=(refine)(cov)] (fpan) {};
+  % offline strip
+  \node[fill=ink!5, draw=ink!35, dashed, rounded corners=3pt, inner sep=2.6mm,
+        fit={(edlhead) (0.2,1.95) (1.8,-3.35)}] (offpan) {};
+  % coarse panel
+  \node[fill=coarseBg, draw=coarseLn, rounded corners=3pt, inner sep=2.8mm,
+        fit={(enc) (match) (hyplab) (14.0,0.2)}] (cpan) {};
+  % fine panel
+  \node[fill=fineBg, draw=fineLn, rounded corners=3pt, inner sep=2.8mm,
+        fit=(refine)] (fpan) {};
+  % calibrated pose head panel
+  \node[fill=poseC!8, draw=poseC!60, rounded corners=3pt, inner sep=2.8mm,
+        fit={(lap) (23.5,0.35) (23.5,1.55)}] (ppan) {};
+  % evidence band
+  \node[fill=outBg, draw=outLn!70, rounded corners=3pt, inner sep=2.8mm,
+        fit={(5.45,-1.8) (temp) (16.6,-3.4) (5.45,-3.4)}] (epan) {};
 \end{scope}
-\node[panlab, anchor=south] at (encpan.north) {Evidential representation (Sec.~IV-A,B)};
-\node[panlab, anchor=south] at (cpan.north) {Coarse stage (Sec.~IV-C)};
-\node[panlab, anchor=south] at (fpan.north) {Fine stage (Sec.~IV-D)};
+\node[panlab, anchor=south west] at (offpan.north west)
+  {Offline: evidential mapping (IV-A)};
+\node[panlab, anchor=south west] at (cpan.north west) {Coarse (IV-B,C)};
+\node[panlab, anchor=south west] at (fpan.north west) {Fine (IV-D)};
+\node[panlab, anchor=south west, color=poseC] at (ppan.north west)
+  {Calibrated pose posterior};
+\node[panlab, anchor=south west, color=outLn!80!ink] at (epan.north west)
+  {One evidential channel: created once, never dropped};
 
-% ---------------- Uncertainty legend ----------------
-\begin{scope}[shift={(7.2,-2.75)}]
-  \shade[left color=uLow, right color=uMid] (0,0) rectangle (1.6,0.28);
-  \shade[left color=uMid, right color=uHigh] (1.6,0) rectangle (3.2,0.28);
-  \draw[ink!50, line width=0.4pt] (0,0) rectangle (3.2,0.28);
-  \node[sub, anchor=east] at (-0.15,0.14) {vacuity $u$:};
-  \node[sub, anchor=north] at (0.05,-0.02) {low};
-  \node[sub, anchor=north] at (3.15,-0.02) {high};
-\end{scope}
+% map feeds the online flow
+\draw[flow] (1.9,-0.42) -- node[sym, above=0mm, pos=0.5] {$\mathcal{M}$}
+  (2.9,-0.42) -- (8.4,-0.42) -- (match.south west);
 
 \end{tikzpicture}
 \end{document}
