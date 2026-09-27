@@ -468,6 +468,15 @@ def parse_args():
                          "'pooled' with LoFTR in one PnP, 'stage' after "
                          "--corr-feat-stage LoFTR rounds. The field paths need "
                          "--corr-feats.")
+    ap.add_argument("--use-sh", action="store_true",
+                    help="render VIEW-DEPENDENT colour: substitute the map's "
+                         "sh_coeffs (N,K,3) for its diffuse colors (N,3). Our "
+                         "maps store one RGB per Gaussian, so they cannot express "
+                         "how a surface looks from a direction the fit never saw; "
+                         "optimising colour alone against test views recovers "
+                         "+4.3 dB on Office and +3.5 dB on Chess, which is why "
+                         "this exists. Needs a map built with "
+                         "finetune_map.py --sh-degree N --save-sh.")
     ap.add_argument("--corr-feats", default=None,
                     help="per-Gaussian descriptor field for --corr-matcher "
                          "feat/pooled/stage: a train_locfeat.py --feats-only "
@@ -596,6 +605,18 @@ def main():
     print(f"      {emap.means.shape[0]} splats, {len(emap.primitives)} primitives, "
           f"{len(emap.submaps)} submaps (anchor stride {args.anchor_stride})")
     emap = move_map(emap, device)
+    if args.use_sh:
+        # View-dependent colour: hand the renderer the (N, K, 3) SH in place of
+        # the (N, 3) diffuse RGB.  GsplatRenderer.render accepts either shape and
+        # evaluates the SH per Gaussian inside the SAME single pass, so every
+        # downstream call site is untouched.
+        if getattr(emap, "sh_coeffs", None) is None:
+            die(f"--use-sh: {args.map} carries no 'sh_coeffs'; build it with "
+                "scripts/finetune_map.py --sh-degree N --save-sh")
+        emap.colors = emap.sh_coeffs.to(device, emap.means.dtype)
+        K = emap.colors.shape[1]
+        print(f"      view-dependent colour ON: SH degree {int(round(K ** 0.5)) - 1} "
+              f"({K} coefficients per Gaussian)")
 
     print("[3/5] building pipeline + query front end")
     clip_dim = emap.primitives[0].clip_feat.shape[0]

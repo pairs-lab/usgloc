@@ -451,6 +451,11 @@ MAP_OPTIONAL_KEYS = (
     "loc_feat_obs",          # (N,) training views each descriptor was averaged over
     "loc_feat_pca_mean",     # (D_src,) PCA mean, if loc_feats were reduced
     "loc_feat_pca_basis",    # (D_src, D) PCA basis, if loc_feats were reduced
+    "sh_coeffs",             # (N, K, 3) spherical-harmonic colour, K=(deg+1)^2.
+                             # Optional view-dependent appearance: the map keeps
+                             # its (N, 3) diffuse `colors` too, and a caller opts in
+                             # by passing sh_coeffs to the renderer in place of
+                             # colors (GsplatRenderer.render accepts either shape).
 )
 
 
@@ -545,4 +550,5 @@ def load_gaussian_map(
         loc_feat_obs=_get("loc_feat_obs"),
         loc_feat_pca_mean=_get("loc_feat_pca_mean"),
         loc_feat_pca_basis=_get("loc_feat_pca_basis"),
+        sh_coeffs=_get("sh_coeffs"),
     )

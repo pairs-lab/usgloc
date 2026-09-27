@@ -176,7 +176,7 @@ class GsplatRenderer:
         self,
         means: torch.Tensor,
         covs: torch.Tensor,
-        colors: torch.Tensor,
+        colors: torch.Tensor,        # (N, 3) diffuse RGB, or (N, K, 3) SH coeffs
         opacities: torch.Tensor,
         T_cw: torch.Tensor,
         camera: Camera,
@@ -219,6 +219,31 @@ class GsplatRenderer:
                 self._cov_cache = (key, quats, scales)
         if vacuity is None:
             vacuity = torch.zeros_like(opacities)
+        if colors.dim() == 3:
+            # View-dependent appearance: colors is (N, K, 3) spherical-harmonic
+            # coefficients instead of (N, 3) diffuse RGB.  We evaluate the SH
+            # here, per Gaussian, against this view's direction and hand the
+            # resulting (N, 3) to the SAME single rasterization pass, so the
+            # vacuity / descriptor / xyz channels keep travelling with the
+            # colour exactly as before.  (gsplat's own sh_degree= path cannot be
+            # used: it owns the whole `colors` tensor and leaves no room for our
+            # extra channels.)
+            #
+            # A (N, 3) tensor takes the original code path byte for byte, so
+            # every existing map and every published number is unaffected.
+            from gsplat import spherical_harmonics
+            K = colors.shape[1]
+            deg = int(round(K ** 0.5)) - 1
+            if (deg + 1) ** 2 != K:
+                raise ValueError(
+                    f"colors has {K} SH coefficients, which is not (deg+1)^2")
+            R = T_cw[:3, :3]
+            t = T_cw[:3, 3]
+            cam_c = -(R.transpose(0, 1) @ t)          # camera centre, world
+            dirs = means - cam_c[None]
+            dirs = dirs / dirs.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+            rgb = spherical_harmonics(deg, dirs, colors.to(dirs.dtype))
+            colors = (rgb + 0.5).clamp(0.0, 1.0)     # 3DGS convention: SH -> RGB
         feats = torch.cat([colors, vacuity[:, None]], dim=-1)  # (N, 4)
         c = 4                                                  # next free channel
         f0 = f1 = None

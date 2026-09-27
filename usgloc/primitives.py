@@ -62,6 +62,7 @@ class EvidentialMap:
     means: Optional[torch.Tensor] = None       # (N, 3)
     covs: Optional[torch.Tensor] = None        # (N, 3, 3)
     colors: Optional[torch.Tensor] = None      # (N, 3)
+    sh_coeffs: Optional[torch.Tensor] = None   # (N, K, 3) view-dependent colour
     opacities: Optional[torch.Tensor] = None   # (N,)
     gaussian_vacuity: Optional[torch.Tensor] = None  # (N,) per-splat vacuity for Eq. 8
     # Optional per-Gaussian LOCAL descriptor field (the STDLoc-style feature
@@ -148,6 +149,7 @@ def build_evidential_map(
     loc_feat_obs: Optional[torch.Tensor] = None,
     loc_feat_pca_mean: Optional[torch.Tensor] = None,
     loc_feat_pca_basis: Optional[torch.Tensor] = None,
+    sh_coeffs: Optional[torch.Tensor] = None,
 ) -> EvidentialMap:
     """Build the evidential map from per-Gaussian observations.
 
@@ -195,6 +197,7 @@ def build_evidential_map(
     emap = EvidentialMap(
         primitives=primitives,
         means=means, covs=covs, colors=colors, opacities=opacities,
+        sh_coeffs=sh_coeffs,
         loc_feats=loc_feats,
         loc_feat_obs=loc_feat_obs,
         loc_feat_pca_mean=loc_feat_pca_mean,
