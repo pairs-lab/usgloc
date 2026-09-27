@@ -14,7 +14,7 @@ mixture (the SE(3) realization of the non-Gaussian error of KSE-Net).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import torch
 
@@ -64,6 +64,7 @@ def retrieve_hypotheses(
     query_scene_desc: torch.Tensor,
     top_k: int = 3,
     min_similarity: float = -1.0,
+    candidates: Optional[Sequence[int]] = None,
 ) -> List[PoseHypothesis]:
     """Rank submaps by scene-descriptor similarity; return top-k hypotheses.
 
@@ -71,8 +72,17 @@ def retrieve_hypotheses(
     pipeline after encoding the map.  Weights are softmax-normalized
     similarities; ambiguous scenes return several comparably-weighted
     hypotheses, which is exactly the multi-modality the GMM posterior keeps.
+
+    ``candidates`` restricts the ranking to a subset of submap indices --
+    the hierarchical mode, where a viewpoint-robust global shortlist (e.g.
+    CLIP whole-image retrieval) proposes candidates and the evidential gated
+    similarity reranks them.
     """
-    descs = torch.stack([s.descriptor for s in emap.submaps])
+    if candidates is None:
+        cand = list(range(len(emap.submaps)))
+    else:
+        cand = [int(c) for c in candidates]
+    descs = torch.stack([emap.submaps[c].descriptor for c in cand])
     sim = descs @ query_scene_desc
     k = min(top_k, sim.shape[0])
     vals, idx = torch.topk(sim, k)
@@ -81,9 +91,9 @@ def retrieve_hypotheses(
     weights = torch.softmax(vals / 0.1, dim=0)
     return [
         PoseHypothesis(
-            T0=emap.submaps[int(i)].anchor_pose,
+            T0=emap.submaps[cand[int(i)]].anchor_pose,
             weight=float(w),
-            submap_index=int(i),
+            submap_index=cand[int(i)],
         )
         for i, w in zip(idx, weights)
     ]

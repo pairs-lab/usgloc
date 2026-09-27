@@ -52,6 +52,10 @@ def parse_args():
     ap.add_argument("--fit-height", type=int, default=240)
     ap.add_argument("--fit-stride", type=int, default=10,
                     help="use every K-th train frame for the photometric fit")
+    ap.add_argument("--init-intrinsics", choices=("sfm", "kinect"), default="sfm",
+                    help="intrinsics used to back-project the depth maps: 'sfm' (the "
+                         "per-scene SfM colour focal, i.e. depth registered to colour) or "
+                         "'kinect' (the native 585 depth focal)")
     ap.add_argument("--init-stride", type=int, default=25,
                     help="every K-th frame feeds the depth initialization")
     ap.add_argument("--max-init-points", type=int, default=200_000)
@@ -62,8 +66,42 @@ def parse_args():
                     help="observations needed for full evidence (Sec. IV-A)")
     ap.add_argument("--instance-voxel", type=float, default=0.4,
                     help="voxel size (m) of the voxel x class instance ids")
+    ap.add_argument("--head-mode", choices=("edl", "softmax"), default="edl",
+                    help="'softmax': CE-trained head + entropy vacuity (the "
+                         "ablation baseline); pair with a separate --head-ckpt "
+                         "and --out")
     ap.add_argument("--label-margin", type=float, default=0.01,
                     help="CLIP top1-top2 margin filter for head pseudo-labels")
+    # Reference-3DGS fidelity knobs for stage 3 (all default OFF = current recipe).
+    ap.add_argument("--ssim-lambda", type=float, default=0.0,
+                    help="D-SSIM term: loss = (1-lam)*L1 + lam*(1-SSIM); reference "
+                         "3DGS uses 0.2 (0 = the pure-L1 recipe)")
+    ap.add_argument("--sh-degree", type=int, default=0,
+                    help="fit spherical-harmonic colour up to this degree (0 = plain "
+                         "RGB). The exported map keeps the (N,3) 'colors' contract: "
+                         "the DC band is baked, the view-dependent residual discarded")
+    ap.add_argument("--sh-increase-every", type=int, default=1000)
+    ap.add_argument("--lr-means", type=float, default=1.6e-4,
+                    help="means learning rate before the scene-extent scaling")
+    ap.add_argument("--lr-means-final", type=float, default=None,
+                    help="exponentially decay the means lr to this value over the fit "
+                         "(reference 3DGS: 1.6e-4 -> 1.6e-6)")
+    ap.add_argument("--refine-start-iter", type=int, default=None)
+    ap.add_argument("--refine-stop-iter", type=int, default=None,
+                    help="default min(iters//2 + 500, 15000); reference 3DGS refines "
+                         "until 15k of 30k")
+    ap.add_argument("--refine-every", type=int, default=None)
+    ap.add_argument("--reset-every", type=int, default=None)
+    ap.add_argument("--grow-grad2d", type=float, default=None,
+                    help="DefaultStrategy densification gradient threshold (gsplat "
+                         "default 2e-4)")
+    ap.add_argument("--grow-scale3d", type=float, default=None)
+    ap.add_argument("--prune-opa", type=float, default=None)
+    ap.add_argument("--views-uint8", action="store_true",
+                    help="keep preloaded fit views in 8-bit (4x less host RAM) so "
+                         "small --fit-stride values fit")
+    ap.add_argument("--psnr-frames", type=int, default=0,
+                    help="evaluate the fit PSNR on this many training views at the end")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     return ap.parse_args()
@@ -87,16 +125,34 @@ def main():
 
     print("[2/5] initializing from depth")
     pts, cols = mapping.backproject_init_points(
-        ds, ds.depth_camera(), frame_stride=args.init_stride,
+        ds, (ds.depth_camera() if args.init_intrinsics == "sfm"
+            else ds.camera(ds.color_width, ds.color_height)),
+        frame_stride=args.init_stride,
         max_points=args.max_init_points, seed=args.seed,
     )
     print(f"      {pts.shape[0]} seed points")
 
     print(f"[3/5] photometric 3DGS fit ({args.iters} iters @ "
           f"{args.fit_width}x{args.fit_height}, every {args.fit_stride}th frame)")
+    strat = {k: v for k, v in (
+        ("refine_start_iter", args.refine_start_iter),
+        ("refine_stop_iter", args.refine_stop_iter),
+        ("refine_every", args.refine_every),
+        ("reset_every", args.reset_every),
+        ("grow_grad2d", args.grow_grad2d),
+        ("grow_scale3d", args.grow_scale3d),
+        ("prune_opa", args.prune_opa),
+    ) if v is not None}
+    if strat:
+        print(f"      densification overrides: {strat}")
     raw = mapping.fit_gaussians(
         ds, cam_fit, pts, cols, iters=args.iters,
         frame_stride=args.fit_stride, device=args.device, seed=args.seed,
+        lr_means=args.lr_means, lr_means_final=args.lr_means_final,
+        ssim_lambda=args.ssim_lambda, sh_degree=args.sh_degree,
+        sh_increase_every=args.sh_increase_every,
+        strategy_kwargs=strat or None, store_views_uint8=args.views_uint8,
+        psnr_frames=args.psnr_frames,
     )
     n = raw["means"].shape[0]
     print(f"      fitted {n} gaussians")
@@ -108,7 +164,7 @@ def main():
     clip_feats, obs_count, bank = mapping.distill_clip_features(
         ds, cam_full, raw["means"], encoder, frame_stride=args.distill_stride,
     )
-    torch.save(bank, out.parent / f"{args.scene}_bank.pt")  # reused by train_head.py
+    torch.save(bank, out.parent / f"{args.scene.replace('/', '_')}_bank.pt")  # reused by train_head.py
     print(f"      observed {int((obs_count > 0).sum())}/{n} gaussians, "
           f"bank {bank.shape[0]} mask feats, dim {clip_feats.shape[1]}")
 
@@ -131,6 +187,7 @@ def main():
               f"(mask + gaussian domains, C={C})")
         head = mapping.train_edl_head(
             feats, labels, num_classes=C, device=args.device, seed=args.seed,
+            objective="ce" if args.head_mode == "softmax" else "edl",
         )
         head_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(head.state_dict(), head_path)
@@ -139,6 +196,7 @@ def main():
 
     beliefs, vacuities = mapping.gaussian_opinions(
         head, clip_feats, obs_count, full_evidence_obs=args.full_evidence_obs,
+        mode=args.head_mode,
     )
     instance_ids = mapping.assign_instance_ids(
         raw["means"].cpu(), beliefs.argmax(dim=-1), voxel=args.instance_voxel,

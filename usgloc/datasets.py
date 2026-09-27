@@ -112,7 +112,7 @@ def _read_sfm_pose_file(path: Path) -> dict:
                 f"{path}:{ln}: expected 'image qw qx qy qz tx ty tz focal' "
                 f"(9 fields), got {len(parts)}"
             )
-        key = parts[0].replace(".color.png", "")
+        key = parts[0].replace(".color.png", "").replace(".color.jpg", "")
         vals = torch.tensor([float(x) for x in parts[1:]], dtype=torch.float64)
         R = quat_to_rotmat(vals[:4])
         T = torch.eye(4, dtype=torch.float64)
@@ -445,7 +445,13 @@ MAP_REQUIRED_KEYS = (
     "beliefs",     # (N, C) DST belief masses from the EDL head
     "vacuities",   # (N,) vacuity masses from the EDL head
 )
-MAP_OPTIONAL_KEYS = ("instance_ids",)  # (N,) integer cluster/instance ids
+MAP_OPTIONAL_KEYS = (
+    "instance_ids",          # (N,) integer cluster/instance ids
+    "loc_feats",             # (N, D) per-Gaussian LOCAL descriptor field, float16
+    "loc_feat_obs",          # (N,) training views each descriptor was averaged over
+    "loc_feat_pca_mean",     # (D_src,) PCA mean, if loc_feats were reduced
+    "loc_feat_pca_basis",    # (D_src, D) PCA basis, if loc_feats were reduced
+)
 
 
 def load_gaussian_map(
@@ -472,6 +478,15 @@ def load_gaussian_map(
         * ``instance_ids`` (N,) -- integer object ids (e.g. Gaussian Grouping
           identity argmax); if absent, spatial clustering is used instead
           (see :func:`usgloc.primitives.cluster_gaussians`).
+        * ``loc_feats`` (N, D) -- per-Gaussian LOCAL descriptor field (float16
+          on disk, L2-normalized rows), built by
+          :mod:`usgloc.locfeat`/``scripts/analysis/train_locfeat.py``.  Maps WITHOUT it
+          load exactly as before and ``EvidentialMap.loc_feats`` is ``None``.
+        * ``loc_feat_obs`` (N,) -- how many training views each descriptor was
+          averaged over (0 = never observed); the landmark-selection signal.
+        * ``loc_feat_pca_mean`` (D_src,) / ``loc_feat_pca_basis`` (D_src, D) --
+          the PCA that produced ``loc_feats`` from the encoder's native
+          descriptors; the query side must apply the same projection.
 
     Args:
         path: path to the ``torch.save``'d dict.
@@ -526,4 +541,8 @@ def load_gaussian_map(
         vacuities=_get("vacuities"),
         instance_ids=_get("instance_ids"),
         fuse_rule=fuse_rule,
+        loc_feats=_get("loc_feats"),
+        loc_feat_obs=_get("loc_feat_obs"),
+        loc_feat_pca_mean=_get("loc_feat_pca_mean"),
+        loc_feat_pca_basis=_get("loc_feat_pca_basis"),
     )

@@ -202,4 +202,15 @@ def laplace_covariance(
         Sigma = sigma2 * torch.linalg.inv(JtJ)
         # Symmetrize against numerical drift.
         Sigma = 0.5 * (Sigma + Sigma.T)
+        # Project onto the positive-definite cone. A near-singular J^T W J
+        # (a pose direction the render does not constrain, e.g. a textureless
+        # frontal wall) can leave tiny negative eigenvalues after inversion,
+        # which make logdet and the NLL non-finite. Flooring the spectrum
+        # keeps the covariance a valid Gaussian and is a no-op when the
+        # Hessian is well conditioned.
+        evals, evecs = torch.linalg.eigh(Sigma.double())
+        floor = float(evals.max().clamp_min(1e-30)) * 1e-9
+        evals = evals.clamp_min(max(floor, 1e-30))
+        Sigma = (evecs @ torch.diag(evals) @ evecs.T).to(Sigma.dtype)
+        Sigma = 0.5 * (Sigma + Sigma.T)
     return Sigma

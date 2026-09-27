@@ -34,7 +34,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from usgloc import mapping
-from usgloc.datasets import SevenScenes
+from usgloc.datasets import SevenScenes, TwelveScenes
 from usgloc.evidential import evidence_to_subjective_opinion
 
 
@@ -43,8 +43,16 @@ def parse_args():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--root", required=True)
+    ap.add_argument("--dataset", choices=("7scenes", "12scenes"), default="7scenes")
+    ap.add_argument("--sfm-pose-dir", default=None,
+                    help="Brachmann SfM pseudo-GT pose dir (needed for 12Scenes, whose "
+                         "original pose files contain -1.#INF entries)")
     ap.add_argument("--scenes", nargs="+", required=True)
     ap.add_argument("--maps-dir", default="maps")
+    ap.add_argument("--map-suffix", default="",
+                    help="read maps/<scene><suffix>.pt for the Gaussian "
+                         "domain (e.g. _hq); the head must be trained on "
+                         "the SAME maps it will be applied to")
     ap.add_argument("--out", default="ckpts/edl_head.pt")
     ap.add_argument("--distill-stride", type=int, default=20)
     ap.add_argument("--label-margin", type=float, default=0.01)
@@ -68,11 +76,12 @@ def main():
     feats_all, labels_all, per_scene = [], [], {}
     for scene in args.scenes:
         # -- mask domain (cached) --
-        bank_path = Path(args.maps_dir) / f"{scene}_bank.pt"
+        bank_path = Path(args.maps_dir) / f"{scene.replace('/', '_')}_bank.pt"
         if bank_path.is_file():
             bank = torch.load(bank_path, weights_only=True)
         else:
-            ds = SevenScenes(args.root, scene, split="train")
+            DS = SevenScenes if args.dataset == "7scenes" else TwelveScenes
+            ds = DS(args.root, scene, split="train", sfm_pose_dir=args.sfm_pose_dir)
             feats = []
             for i in range(0, len(ds), args.distill_stride):
                 img = ds.load_image(i)
@@ -88,10 +97,13 @@ def main():
 
         # -- gaussian domain (only if this scene's map exists) --
         n_gauss = 0
-        map_path = Path(args.maps_dir) / f"{scene}.pt"
+        map_path = Path(args.maps_dir) / f"{scene.replace('/', '_')}{args.map_suffix}.pt"
         if map_path.is_file():
             ckpt = torch.load(map_path, weights_only=True)
-            observed = ckpt["vacuities"] < 0.9999
+            # obs_count is head-independent; the vacuity proxy breaks when a
+            # map was bootstrapped with a foreign head (evidence collapse).
+            observed = (ckpt["obs_count"] > 0) if "obs_count" in ckpt \
+                else ckpt["vacuities"] < 0.9999
             gf = ckpt["clip_feats"][observed]
             if gf.shape[0] > args.max_gauss_per_scene:
                 sel = torch.randperm(gf.shape[0], generator=g)[: args.max_gauss_per_scene]

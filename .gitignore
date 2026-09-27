@@ -1,0 +1,18 @@
+# data, maps and checkpoints are large and regenerable -- never committed
+data/
+maps/
+ckpts/
+*.pt
+*.pth
+*.zip
+FastSAM-s.pt
+
+# experiment outputs (results/demo_results.json is tracked deliberately)
+results/
+
+# third-party clone kept for reference, has its own history
+SplatHLoc/
+
+# build / cache
+__pycache__/
+*.pyc

@@ -10,10 +10,13 @@ Two interchangeable backends:
 * :class:`GsplatRenderer` -- wraps `gsplat.rasterization` for full-resolution
   use on real scenes.  The vacuity map costs nothing extra: the per-splat
   vacuity is appended to the color channels and alpha-blended by the same
-  kernel, exactly as Eq. 8 prescribes.
+  kernel, exactly as Eq. 8 prescribes.  The same mechanism carries the
+  optional per-Gaussian LOCAL DESCRIPTOR field (:mod:`usgloc.locfeat`): pass
+  ``loc_feats`` and one rasterization returns rgb + vacuity + descriptors.
 
 Both return a dict with ``rgb`` (H, W, 3), ``vacuity`` (H, W) and ``alpha``
-(H, W).
+(H, W); :class:`GsplatRenderer` adds ``depth``, ``xyz``, ``meta`` and
+``feats`` on request.
 """
 
 from __future__ import annotations
@@ -178,7 +181,29 @@ class GsplatRenderer:
         T_cw: torch.Tensor,
         camera: Camera,
         vacuity: Optional[torch.Tensor] = None,
+        with_depth: bool = False,
+        with_xyz: bool = False,
+        with_meta: bool = False,
+        loc_feats: Optional[torch.Tensor] = None,
+        feat_normalize: bool = True,
     ) -> Dict[str, torch.Tensor]:
+        """Rasterize rgb + vacuity (+ depth / xyz / local descriptors).
+
+        ``loc_feats`` (N, D), when given, is alpha-blended by the SAME
+        rasterization as the colour and vacuity channels -- one projection, one
+        tile binning -- and returned as ``out["feats"]`` (H, W, D).  With
+        ``feat_normalize`` the rendered descriptor map is L2-normalised per
+        pixel (STDLoc's convention: normalise per-Gaussian before blending,
+        normalise again per pixel after).  ``loc_feats`` must already be on
+        ``means``' device and dtype.
+
+        gsplat rasterizes at most ``channel_chunk`` (32 in gsplat 1.5.x)
+        channels per ``rasterize_to_pixels`` launch, so a D-dimensional
+        descriptor costs ``ceil((4 + D + ...) / 32)`` pixel passes instead of
+        one -- the projection and tile binning are shared.  Leaving
+        ``loc_feats=None`` reproduces the previous channel layout and the
+        previous cost exactly.
+        """
         from gsplat import rasterization
 
         key = (covs.data_ptr(), covs.shape[0])
@@ -195,7 +220,25 @@ class GsplatRenderer:
         if vacuity is None:
             vacuity = torch.zeros_like(opacities)
         feats = torch.cat([colors, vacuity[:, None]], dim=-1)  # (N, 4)
-        render, alphas, _ = rasterization(
+        c = 4                                                  # next free channel
+        f0 = f1 = None
+        if loc_feats is not None:
+            if loc_feats.shape[0] != means.shape[0]:
+                raise ValueError(
+                    f"loc_feats has {loc_feats.shape[0]} rows for "
+                    f"{means.shape[0]} gaussians"
+                )
+            f0, f1 = c, c + loc_feats.shape[-1]
+            feats = torch.cat([feats, loc_feats], dim=-1)
+            c = f1
+        if with_xyz:
+            # Alpha-blend the Gaussian world centres as three extra channels.
+            # Dividing by alpha gives the expected world point seen at each
+            # pixel WITHOUT inverting the camera model through a blended
+            # depth, which is where silhouettes invent phantom surfaces.
+            x0, c = c, c + 3
+            feats = torch.cat([feats, means], dim=-1)          # (N, 7)
+        render, alphas, _meta = rasterization(
             means=means,
             quats=quats,
             scales=scales,
@@ -206,9 +249,29 @@ class GsplatRenderer:
             width=camera.width,
             height=camera.height,
             near_plane=self.near,
+            render_mode="RGB+ED" if with_depth else "RGB",
+            # colors carries [rgb, vacuity] and optionally [loc_feats], [x, y, z]
+
         )
-        return {
+        out = {
             "rgb": render[0, ..., :3],
             "vacuity": render[0, ..., 3],
             "alpha": alphas[0, ..., 0],
         }
+        if with_depth:
+            # "RGB+ED": expected (alpha-normalized) z-depth as the last channel.
+            out["depth"] = render[0, ..., c]
+        if loc_feats is not None:
+            fm = render[0, ..., f0:f1]
+            if feat_normalize:
+                fm = torch.nn.functional.normalize(fm, p=2, dim=-1)
+            out["feats"] = fm
+        if with_xyz:
+            a = alphas[0, ..., 0:1].clamp_min(1e-6)
+            out["xyz"] = render[0, ..., x0:x0 + 3] / a
+        if with_meta:
+            # Tile lists + projected primitives, for usgloc.lift.ray_depths:
+            # lets a caller recompute the exact per-ray compositing (hence
+            # mode / median / banded depth) for a handful of pixels.
+            out["meta"] = _meta
+        return out

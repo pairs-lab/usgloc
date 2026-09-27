@@ -17,7 +17,7 @@ from typing import List, Optional
 
 import torch
 
-from .evidential import EvidentialHead, evidence_to_subjective_opinion
+from .evidential import EvidentialHead, evidence_to_subjective_opinion, softmax_opinions
 from .pipeline import QueryInstance
 
 
@@ -30,6 +30,7 @@ class RealQueryEncoder:
         fastsam_weights: str = "FastSAM-s.pt",
         device: str = "cuda",
         min_mask_area: float = 0.002,
+        opinion_mode: str = "edl",
     ):
         try:
             import open_clip
@@ -48,6 +49,21 @@ class RealQueryEncoder:
         self.sam = FastSAM(fastsam_weights)
         self.edl_head = edl_head.to(device).eval()
         self.min_mask_area = min_mask_area
+        if opinion_mode not in ("edl", "softmax"):
+            raise ValueError(f"opinion_mode must be 'edl' or 'softmax', got {opinion_mode!r}")
+        self.opinion_mode = opinion_mode  # 'softmax': the CE-trained ablation head
+
+    @torch.no_grad()
+    def encode_global(self, image_bgr) -> torch.Tensor:
+        """Whole-image CLIP embedding (d,), l2-normalized -- the viewpoint-
+        robust global descriptor for the hierarchical retrieval shortlist."""
+        import numpy as np
+        from PIL import Image
+
+        pil = Image.fromarray(np.ascontiguousarray(image_bgr[:, :, ::-1]))
+        x = self.preprocess(pil)[None].to(self.device)
+        f = self.clip.encode_image(x)[0]
+        return f / f.norm().clamp_min(1e-8)
 
     @torch.no_grad()
     def encode(self, image_bgr) -> List[QueryInstance]:
@@ -75,8 +91,11 @@ class RealQueryEncoder:
             f = self.clip.encode_image(x)[0]
             f = f / f.norm().clamp_min(1e-8)
 
-            evidence = self.edl_head(f[None])[0]
-            _, belief, vacuity = evidence_to_subjective_opinion(evidence[None])
+            if self.opinion_mode == "softmax":
+                belief, vacuity = softmax_opinions(self.edl_head.net(f[None]))
+            else:
+                evidence = self.edl_head(f[None])[0]
+                _, belief, vacuity = evidence_to_subjective_opinion(evidence[None])
             centroid = torch.tensor(
                 [xs.mean() / W, ys.mean() / H], dtype=f.dtype, device=f.device
             )

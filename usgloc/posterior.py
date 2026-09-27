@@ -65,6 +65,25 @@ class PoseGaussian:
         return torch.sqrt(torch.diagonal(self.Sigma)[3:].sum())
 
 
+def _project_pd(Sigma: torch.Tensor, rel_floor: float = 1e-6) -> torch.Tensor:
+    """Nearest symmetric positive-definite matrix (eigenvalue floor).
+
+    A moment-matched covariance is PSD in exact arithmetic, but a component
+    whose Laplace Hessian was nearly singular can leave it indefinite in
+    float32, which then yields a negative Mahalanobis distance and a NaN
+    log-determinant (observed on about one query in 700). Flooring the
+    spectrum at rel_floor * max eigenvalue restores a valid Gaussian
+    without changing any well-conditioned covariance. The floor must sit
+    above float32 resolution (about 1e-7 of the largest eigenvalue), or the
+    reconstruction rounds a clamped eigenvalue negative again.
+    """
+    S = 0.5 * (Sigma + Sigma.T)
+    evals, evecs = torch.linalg.eigh(S.double())
+    floor = rel_floor * evals.max().clamp_min(1e-30)
+    evals = evals.clamp_min(floor)
+    return ((evecs * evals) @ evecs.T).to(Sigma.dtype)
+
+
 @dataclass
 class PoseMixture:
     """Weighted mixture of tangent-space Gaussians (Eq. 12)."""
@@ -87,10 +106,22 @@ class PoseMixture:
         """Highest-weight component."""
         return self.components[int(torch.argmax(self.weights))]
 
-    def condense(self) -> PoseGaussian:
-        """Moment-matched single Gaussian for a downstream Bayesian filter."""
+    def condense(self, at_mode: bool = False) -> PoseGaussian:
+        """Moment-matched single Gaussian for a downstream Bayesian filter.
+
+        ``at_mode`` keeps the moment-matched covariance -- which includes the
+        between-component spread, so it grows when the modes disagree -- but
+        centres it on the highest-weight component instead of on the mixture
+        mean. For a multi-modal posterior the mean lies between the modes and
+        is therefore a pose the model considers unlikely; on Stairs, where the
+        modes sit one stair tread apart, reporting the mean rather than the
+        mode roughly doubles the median error. The mean remains the correct
+        choice for a filter that will itself re-linearize, so both are
+        available.
+        """
         if len(self.components) == 1:
-            return self.components[0]
+            c0 = self.components[0]
+            return PoseGaussian(T_mode=c0.T_mode, Sigma=_project_pd(c0.Sigma))
         T_ref = self.mode.T_mode
         xis = torch.stack(
             [se3.relative_tangent(T_ref, c.T_mode) for c in self.components]
@@ -105,5 +136,6 @@ class PoseMixture:
         Sigma = torch.zeros(6, 6, dtype=xis.dtype, device=xis.device)
         for k, c in enumerate(self.components):
             Sigma = Sigma + self.weights[k] * (c.Sigma + torch.outer(d[k], d[k]))
-        Sigma = 0.5 * (Sigma + Sigma.T)
-        return PoseGaussian(T_mode=T_mean, Sigma=Sigma)
+        Sigma = _project_pd(0.5 * (Sigma + Sigma.T))
+        return PoseGaussian(T_mode=self.mode.T_mode if at_mode else T_mean,
+                            Sigma=Sigma)

@@ -52,9 +52,15 @@ def parse_args():
                     help="output checkpoint (default ckpts/<scene>_encoders.pt)")
     ap.add_argument("--anchor-stride", type=int, default=20)
     ap.add_argument("--submap-radius", type=float, default=3.0)
-    ap.add_argument("--variant-offsets", type=int, nargs="+",
-                    default=[-8, -4, 0, 4, 8],
-                    help="frame offsets around each anchor used as query variants")
+    ap.add_argument("--angle-weight", type=float, default=0.5,
+                    help="metres-per-radian weight of the view-angle term in the "
+                         "frame-to-anchor assignment")
+    ap.add_argument("--pos-radius", type=float, default=0.35,
+                    help="positives: max camera-centre distance (m) from the anchor")
+    ap.add_argument("--pos-angle", type=float, default=35.0,
+                    help="positives: max viewing-direction angle (deg) from the anchor")
+    ap.add_argument("--variants-per-anchor", type=int, default=6,
+                    help="covisible frames sampled per anchor as query variants")
     ap.add_argument("--iters", type=int, default=400)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--pairs-per-iter", type=int, default=24,
@@ -104,26 +110,62 @@ def main():
     front = RealQueryEncoder(edl_head=head, fastsam_weights=args.fastsam_weights,
                              device=str(device))
 
-    print(f"[3/4] encoding query variants "
-          f"({len(args.variant_offsets)} per anchor) -- the slow part")
+    # Voronoi-assigned positives: every train frame belongs to exactly ONE
+    # nearest anchor (pose distance + angle penalty), and an anchor's query
+    # variants are frames sampled from its own cell. Two failure modes drove
+    # this design: fixed +-offset variants (near-identical views) collapse on
+    # held-out test sequences (val 1.9 cm vs test 61 cm), and radius-overlap
+    # covisibility positives are near-positives of NEIGHBORING submaps too,
+    # so in-batch InfoNCE sees contradictory negatives and collapses to
+    # chance (measured: final loss ln 24). Unique assignment keeps the
+    # multi-sequence viewpoint diversity with one positive per frame, and
+    # matches the retrieval task exactly (map a view to its nearest anchor).
+    import math
+
+    poses = [ds[j].pose_cw for j in range(len(ds))]
+    centres = torch.stack([-T[:3, :3].T @ T[:3, 3] for T in poses])
+    dirs = torch.stack([T[2, :3] for T in poses])  # optical axis in world
+    a_centres = centres[torch.tensor(kept)]
+    a_dirs = dirs[torch.tensor(kept)]
+    # distance + angle penalty (radians scaled to metres): frame -> anchor
+    d_all = torch.cdist(centres, a_centres)
+    ang = torch.arccos(((dirs @ a_dirs.T)).clamp(-1, 1))
+    score = d_all + args.angle_weight * ang
+    assign = score.argmin(dim=1)
+    ok = (d_all.gather(1, assign[:, None]).squeeze(1) < args.pos_radius) & (
+        ang.gather(1, assign[:, None]).squeeze(1) < math.radians(args.pos_angle))
+    g_var = torch.Generator().manual_seed(args.seed)
+    cache = {}
+
+    def encode_frame(j):
+        if j not in cache:
+            img = ds.load_image(j)
+            bgr = (img.numpy() * 255).astype("uint8")[:, :, ::-1]
+            cache[j] = front.encode(bgr)
+        return cache[j]
+
+    print(f"[3/4] encoding Voronoi-cell query variants "
+          f"(<= {args.variants_per_anchor} per anchor) -- the slow part")
     pairs = []
     for n_done, (k, i) in enumerate(zip(range(len(emap.submaps)), kept)):
         sm = emap.submaps[k]
         if sm.primitive_idx.numel() < 2:
             continue
+        cell = torch.nonzero((assign == k) & ok, as_tuple=False).squeeze(-1).tolist()
+        if i in cell:
+            cell.remove(i)
+        picks = [cell[int(torch.randint(len(cell), (1,), generator=g_var))]
+                 for _ in range(min(args.variants_per_anchor - 1, len(cell)))]
         variants = []
-        for off in args.variant_offsets:
-            j = min(max(i + off, 0), len(ds) - 1)
-            img = ds.load_image(j)
-            bgr = (img.numpy() * 255).astype("uint8")[:, :, ::-1]
-            qi = front.encode(bgr)
+        for j in dict.fromkeys([i] + picks):
+            qi = encode_frame(j)
             if len(qi) >= 2:
                 variants.append([q for q in qi])
         if variants:
             pairs.append((sm, variants))
         if n_done % 10 == 0:
             print(f"      anchor {n_done + 1}/{len(emap.submaps)}: "
-                  f"{len(pairs)} trainable pairs")
+                  f"{len(pairs)} trainable pairs, {len(cache)} frames encoded")
     if len(pairs) < 4:
         raise SystemExit(f"only {len(pairs)} trainable submap/query pairs; "
                          "lower --anchor-stride or check the front end")

@@ -117,6 +117,26 @@ def fuse_opinions(
     return b, u, mean_eta
 
 
+def softmax_opinions(
+    logits: torch.Tensor, obs_scale: Optional[torch.Tensor] = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """The non-evidential twin of Eq. 3 for the softmax ablation.
+
+    ``p = softmax(logits)``; vacuity is the normalized entropy
+    ``u = H(p) / ln C`` (deflated toward 1 when ``obs_scale`` < 1, mirroring
+    the evidential observation scaling); belief ``b = (1 - u) p`` keeps the
+    subjective-logic identity ``u + sum b = 1`` so every downstream consumer
+    works unchanged.
+    """
+    p = torch.softmax(logits, dim=-1)
+    C = p.shape[-1]
+    H = -(p.clamp_min(1e-12) * p.clamp_min(1e-12).log()).sum(dim=-1)
+    u = H / torch.log(torch.tensor(float(C), device=p.device, dtype=p.dtype))
+    if obs_scale is not None:
+        u = 1.0 - (1.0 - u) * obs_scale.clamp(0.0, 1.0)
+    return (1.0 - u)[..., None] * p, u
+
+
 def edl_loss(
     evidence: torch.Tensor,
     targets: torch.Tensor,

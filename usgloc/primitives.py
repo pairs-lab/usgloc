@@ -64,6 +64,23 @@ class EvidentialMap:
     colors: Optional[torch.Tensor] = None      # (N, 3)
     opacities: Optional[torch.Tensor] = None   # (N,)
     gaussian_vacuity: Optional[torch.Tensor] = None  # (N,) per-splat vacuity for Eq. 8
+    # Optional per-Gaussian LOCAL descriptor field (the STDLoc-style feature
+    # substrate): (N, D) float16 on disk, L2-normalized per row.  When present,
+    # a correspondence's 3D point is the Gaussian mean -- a map parameter --
+    # instead of a read-out of the blended depth buffer.  Absent (None) for
+    # every map built before the field existed; nothing in the RGB-matching
+    # path looks at it.
+    loc_feats: Optional[torch.Tensor] = None
+    # (N,) how many training views each Gaussian's descriptor was averaged
+    # over; 0 = never observed (its descriptor is the zero vector).  The
+    # natural landmark-selection signal for the sparse matching stage.
+    loc_feat_obs: Optional[torch.Tensor] = None
+    # (D_src,) / (D_src, D) PCA mean + basis that produced ``loc_feats`` from
+    # the encoder's native descriptors.  The QUERY side must apply the same
+    # projection, so it travels with the map.  None => descriptors are the
+    # encoder's native ones.
+    loc_feat_pca_mean: Optional[torch.Tensor] = None
+    loc_feat_pca_basis: Optional[torch.Tensor] = None
 
     def primitive_tensor(self) -> dict:
         """Stacked per-primitive tensors for vectorized matching."""
@@ -127,6 +144,10 @@ def build_evidential_map(
     instance_ids: Optional[torch.Tensor] = None,
     fuse_rule: FuseRule = "dempster",
     max_members_fused: int = 64,
+    loc_feats: Optional[torch.Tensor] = None,
+    loc_feat_obs: Optional[torch.Tensor] = None,
+    loc_feat_pca_mean: Optional[torch.Tensor] = None,
+    loc_feat_pca_basis: Optional[torch.Tensor] = None,
 ) -> EvidentialMap:
     """Build the evidential map from per-Gaussian observations.
 
@@ -174,6 +195,10 @@ def build_evidential_map(
     emap = EvidentialMap(
         primitives=primitives,
         means=means, covs=covs, colors=colors, opacities=opacities,
+        loc_feats=loc_feats,
+        loc_feat_obs=loc_feat_obs,
+        loc_feat_pca_mean=loc_feat_pca_mean,
+        loc_feat_pca_basis=loc_feat_pca_basis,
     )
     emap.assign_gaussian_vacuity()
     return emap

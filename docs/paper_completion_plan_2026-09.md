@@ -212,6 +212,19 @@ New module `usgloc/mapping.py` + two CLIs; 73 tests pass.
 
 ## Phase 4 — Figures + writing (overlaps Phase 3)
 
+Progress 2026-09-18 night (number-independent parts done): datasets rescoped
+to 7Scenes + 12Scenes (user directive — 12Scenes is REQUIRED; ScanNet and
+semi-dynamic cut); V-A Implementation filled with the frozen recipe
+(validation/temperature protocol stated; RTX 5070 Ti; Jetson dropped);
+ULF-Loc row + verified bib entry ("Unbiased Landmark Feature...", Gu et al.)
+added; UGS-Loc/SplatHLoc rows now two-decimal; 12Scenes comparison table
+added (UGS-Loc 0.4/0.18, 99.1%); SGLoc-protocol TODO resolved (lives in the
+extended report); calib/ablation tables re-captioned ScanNet -> 7Scenes;
+Limitations subsection written; author block fixed. Draft compiles at 8 pp
+(trim happens at the ieeeconf port, 4.0). Remaining in the draft: measured
+numbers (Ours rows, headline sentences), N= iterations after tuning, Fig. 3
+regeneration, Fig. 4 vacuity panels (--save-visuals now exists).
+
 - [ ] **4.0 Port to `ieeeconf` FIRST and measure pages.** RA-L initial
       submissions use the conference class, and the 6-page limit INCLUDES
       references — porting after writing risks a rewrite cycle. Port, compile
@@ -244,7 +257,7 @@ New module `usgloc/mapping.py` + two CLIs; 73 tests pass.
       (per-scene map stats, per-scene calibration, full ablations,
       robustness, runtime, SGLoc DSLAM comparison, converged InfoNCE) —
       it doubles as the arXiv extended version and the reviewer supplement.
-- [ ] **4.5 Add a Limitations paragraph** (none exists): Dempster/Yager
+- [x] **4.5 Limitations subsection ADDED (2026-09-18 night)** covering: Dempster/Yager
       conflict behavior, local-unimodal Laplace vs the GMM argument,
       FastSAM/CLIP dependence, per-scene training, indoor-only evaluation.
 - [ ] **4.6 Table I surgery**: add **ULF-Loc row** (CVPR 2026 highlight,
@@ -255,7 +268,7 @@ New module `usgloc/mapping.py` + two CLIs; 73 tests pass.
       red caption notes and the `\res`/`\TODO` macros (final check counts
       OCCURRENCES, not lines:
       `grep -o 'TODO{\|\\res{\|textcolor{red' usgloc_ral_draft.tex | wc -l` → 0).
-- [ ] **4.7 Author block fixes**: Xiem HoangVan currently duplicates Thanh's
+- [x] **4.7 Author block FIXED (2026-09-18 night)** — was: Xiem HoangVan currently duplicates Thanh's
       ORCID; Thanh's own `\orcidlink` holds a full URL; `\thanks` lists
       non-authors (pham_n_quang, van-ho) and "tongvan" for Bang Nguyen Van;
       `\markboth` still says "Month, Year".

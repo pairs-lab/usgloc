@@ -34,7 +34,12 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import torch
 
 from .datasets import SevenScenes
-from .evidential import EvidentialHead, edl_loss, evidence_to_subjective_opinion
+from .evidential import (
+    EvidentialHead,
+    edl_loss,
+    evidence_to_subjective_opinion,
+    softmax_opinions,
+)
 from .rendering import Camera
 
 # ~25 indoor classes covering 7Scenes content (office, kitchen, stairs ...).
@@ -142,6 +147,20 @@ def _inverse_sigmoid(x: float) -> float:
     return math.log(x / (1.0 - x))
 
 
+# Band-0 spherical-harmonic constant; gsplat evaluates
+# ``rgb = clamp(SH(dirs, coeffs) + 0.5, 0)``, so the DC-only colour of a
+# Gaussian is ``SH_C0 * sh0 + 0.5`` and the inverse is ``(rgb - 0.5) / SH_C0``.
+SH_C0 = 0.28209479177387814
+
+
+def _rgb_to_sh0(rgb: torch.Tensor) -> torch.Tensor:
+    return (rgb - 0.5) / SH_C0
+
+
+def _sh0_to_rgb(sh0: torch.Tensor) -> torch.Tensor:
+    return (SH_C0 * sh0 + 0.5).clamp(0.0, 1.0)
+
+
 def fit_gaussians(
     ds: SevenScenes,
     camera: Camera,
@@ -154,12 +173,89 @@ def fit_gaussians(
     opacity_init: float = 0.1,
     seed: int = 0,
     log_every: int = 500,
+    init_state: Optional[Dict[str, torch.Tensor]] = None,
+    densify: bool = True,
+    lr_overrides: Optional[Dict[str, float]] = None,
+    strategy_kwargs: Optional[Dict[str, int]] = None,
+    store_views_uint8: bool = False,
+    depth_weight: float = 0.0,
+    depth_scale: Optional[float] = None,
+    depth_alpha_min: float = 0.5,
+    depth_range: Tuple[float, float] = (0.2, 8.0),
+    depth_scale_frames: int = 20,
+    ssim_lambda: float = 0.0,
+    ssim_window: int = 11,
+    sh_degree: int = 0,
+    sh_increase_every: int = 1000,
+    lr_means_final: Optional[float] = None,
+    lr_sh_rest_div: float = 20.0,
+    return_sh: bool = False,
+    psnr_frames: int = 0,
 ) -> Dict[str, torch.Tensor]:
     """Fit a plain-RGB 3DGS scene with gsplat's DefaultStrategy densification.
+
+    ``init_state`` (means, covs, colors, opacities of an existing map) starts
+    the fit from those Gaussians instead of the depth seeds; with
+    ``densify=False`` the Gaussian set is kept fixed in size and order, so a
+    map's semantic attributes stay valid after a photometric fine-tune at a
+    higher resolution.
 
     Trains at the resolution of ``camera`` (pass e.g. ``ds.scene_camera(320,
     240)`` for speed) on every ``frame_stride``-th train frame, one random
     view per iteration, L1 photometric loss.
+
+    ``lr_overrides`` replaces individual entries of the per-parameter learning
+    rates (keys ``means`` -- already multiplied by the scene scale --,
+    ``quats``, ``scales``, ``opacities``, ``colors``); ``strategy_kwargs``
+    overrides fields of the ``DefaultStrategy`` densification schedule;
+    ``store_views_uint8`` keeps the preloaded training views in 8-bit on the
+    host (exact for 8-bit sources, 4x less RAM) so small frame strides fit.
+    All three default to the previous behaviour.
+
+    ``depth_weight`` > 0 adds a depth term to the photometric loss: the fit
+    then renders ``RGB+ED`` and adds ``depth_weight * L1(rendered_depth,
+    depth_scale * sensor_depth)`` over the pixels whose sensor depth is finite
+    and inside ``depth_range`` metres and whose rendered alpha is at least
+    ``depth_alpha_min`` (the expected depth is alpha-normalised, so it is
+    meaningless where nothing is rendered).  The sensor depth maps are
+    preloaded and resized to the fit resolution with NEAREST interpolation
+    (bilinear would average across depth discontinuities).  ``depth_scale``
+    maps the metric sensor depth into the map's coordinate frame; ``None``
+    estimates it as the median ratio rendered/sensor of the INITIAL Gaussians
+    over ``depth_scale_frames`` evenly spaced training views (7Scenes SfM
+    pseudo-GT poses are calibrated at focal ~526 while the Kinect depth was
+    captured at 585, so the map frame is ~0.9x the metric depth).  With
+    ``depth_weight`` 0 -- the default -- nothing changes: no depth map is
+    loaded and the rasterizer runs in plain ``RGB`` mode as before.
+
+    Reference-3DGS fidelity knobs, ALL default to the previous behaviour:
+
+    ``ssim_lambda`` > 0 replaces the pure L1 photometric term with reference
+    3DGS's ``(1 - lam) * L1 + lam * (1 - SSIM)`` (lam = 0.2 there); SSIM is
+    kornia's (11x11 Gaussian window, 'same' padding), the only SSIM
+    implementation installed here -- gsplat's optional ``fused_ssim`` is not.
+
+    ``sh_degree`` > 0 replaces the view-independent ``colors`` parameter with
+    spherical-harmonic coefficients (``sh0`` (N, 1, 3) + ``shN`` (N, K-1, 3),
+    K = (sh_degree+1)^2), one band activated every ``sh_increase_every``
+    iterations as reference 3DGS does.  NOTE THE EXPORT CONTRACT: usgloc maps
+    store a plain (N, 3) ``colors`` and the whole pipeline renders
+    view-independent colour, so the returned ``colors`` is the BAKED DC band
+    ``clamp(SH_C0 * sh0 + 0.5, 0, 1)``; the view-dependent residual is
+    discarded unless ``return_sh`` also puts the raw (N, K, 3) coefficients in
+    the returned dict under ``"sh"`` (for measuring how much of the fit gain
+    survives the bake).
+
+    ``lr_means_final`` sets an exponential decay of the means learning rate
+    from ``lr_means`` to ``lr_means_final`` over the run (both multiplied by
+    the scene extent), i.e. reference 3DGS's 1.6e-4 -> 1.6e-6 schedule;
+    ``None`` keeps the constant rate.  ``lr_sh_rest_div`` divides the SH
+    higher-band learning rate w.r.t. the DC one (20 in reference 3DGS).
+
+    ``psnr_frames`` > 0 evaluates and prints the PSNR on that many evenly
+    spaced fit views at the end (SH render and, when SH is on, the baked-DC
+    render too), reported in the returned dict under ``"psnr_fit"`` /
+    ``"psnr_fit_baked"``.
 
     Returns the raw-map tensors of the export contract: ``means`` (N, 3),
     ``covs`` (N, 3, 3) rebuilt as R diag(s^2) R^T, ``colors`` (N, 3) in
@@ -177,41 +273,111 @@ def fit_gaussians(
     knn = d2.topk(4, largest=False).values.mean().clamp(5e-3, 0.1)
     scene_scale = float((init_points.max(0).values - init_points.min(0).values).norm() / 2)
 
+    use_sh = int(sh_degree) > 0
+    n_sh = (int(sh_degree) + 1) ** 2 if use_sh else 1
+
+    def _colour_params(rgb: torch.Tensor) -> Dict[str, torch.nn.Parameter]:
+        """Colour parameters: the logit-RGB of the current recipe, or the SH
+        coefficient pair when ``sh_degree`` > 0."""
+        if not use_sh:
+            return {"colors": torch.nn.Parameter(torch.logit(rgb.clamp(1e-3, 1 - 1e-3)))}
+        sh0 = _rgb_to_sh0(rgb.clamp(0.0, 1.0))[:, None, :]           # (N, 1, 3)
+        shN = torch.zeros(rgb.shape[0], n_sh - 1, 3, device=rgb.device)
+        return {"sh0": torch.nn.Parameter(sh0.contiguous()),
+                "shN": torch.nn.Parameter(shN)}
+
     g = torch.Generator(device="cpu").manual_seed(seed)
-    quats0 = torch.randn(P, 4, generator=g)
-    params = torch.nn.ParameterDict(
-        {
-            "means": torch.nn.Parameter(init_points.to(dev).clone()),
-            "quats": torch.nn.Parameter(quats0.to(dev)),
-            "scales": torch.nn.Parameter(torch.full((P, 3), float(knn.log()), device=dev)),
-            "opacities": torch.nn.Parameter(
-                torch.full((P,), _inverse_sigmoid(opacity_init), device=dev)
-            ),
-            "colors": torch.nn.Parameter(
-                torch.logit(init_colors.to(dev).clamp(1e-3, 1 - 1e-3))
-            ),
-        }
-    )
+    if init_state is not None:
+        from .rendering import GsplatRenderer
+
+        q0, s0 = GsplatRenderer._cov_to_quat_scale(init_state["covs"].to(dev))
+        P = init_state["means"].shape[0]
+        params = torch.nn.ParameterDict(
+            {
+                "means": torch.nn.Parameter(init_state["means"].to(dev).clone()),
+                "quats": torch.nn.Parameter(q0.clone()),
+                "scales": torch.nn.Parameter(s0.clamp_min(1e-6).log()),
+                "opacities": torch.nn.Parameter(
+                    torch.logit(init_state["opacities"].to(dev).clamp(1e-4, 1 - 1e-4))
+                ),
+                **_colour_params(init_state["colors"].to(dev)),
+            }
+        )
+    else:
+        quats0 = torch.randn(P, 4, generator=g)
+        params = torch.nn.ParameterDict(
+            {
+                "means": torch.nn.Parameter(init_points.to(dev).clone()),
+                "quats": torch.nn.Parameter(quats0.to(dev)),
+                "scales": torch.nn.Parameter(torch.full((P, 3), float(knn.log()), device=dev)),
+                "opacities": torch.nn.Parameter(
+                    torch.full((P,), _inverse_sigmoid(opacity_init), device=dev)
+                ),
+                **_colour_params(init_colors.to(dev)),
+            }
+        )
     lrs = {
         "means": lr_means * scene_scale,
         "quats": 1e-3,
         "scales": 5e-3,
         "opacities": 5e-2,
         "colors": 2.5e-3,
+        "sh0": 2.5e-3,
+        "shN": 2.5e-3 / max(lr_sh_rest_div, 1e-6),
     }
+    if lr_overrides:
+        lrs.update({k: float(v) for k, v in lr_overrides.items() if v is not None})
     optimizers = {
         k: torch.optim.Adam([{"params": [v], "lr": lrs[k], "name": k}], eps=1e-15)
         for k, v in params.items()
     }
-    strategy = DefaultStrategy(
+    # Reference 3DGS decays the means lr exponentially (1.6e-4 -> 1.6e-6,
+    # scaled by the scene extent); None keeps the constant rate of the
+    # existing recipe.
+    means_sched = None
+    if lr_means_final is not None and iters > 1:
+        gamma = (float(lr_means_final) / max(float(lr_means), 1e-30)) ** (1.0 / (iters - 1))
+        means_sched = torch.optim.lr_scheduler.ExponentialLR(optimizers["means"], gamma)
+        print(f"      means lr decay {lr_means * scene_scale:.3e} -> "
+              f"{lr_means_final * scene_scale:.3e} over {iters} iters (gamma {gamma:.6f})")
+
+    ssim_fn = None
+    if ssim_lambda > 0.0:
+        from kornia.metrics import ssim as _kornia_ssim
+
+        def ssim_fn(pred_hw3: torch.Tensor, gt_hw3: torch.Tensor) -> torch.Tensor:
+            a = pred_hw3.permute(2, 0, 1)[None]
+            b = gt_hw3.permute(2, 0, 1)[None]
+            return _kornia_ssim(a, b, window_size=ssim_window, max_val=1.0).mean()
+
+        print(f"      D-SSIM term: loss = {1 - ssim_lambda:.2f}*L1 + "
+              f"{ssim_lambda:.2f}*(1 - SSIM)  [kornia, window {ssim_window}]")
+    if use_sh:
+        print(f"      spherical harmonics: degree {sh_degree} "
+              f"({n_sh} coeffs), one band every {sh_increase_every} iters; "
+              f"export bakes the DC band")
+
+    def _colour_kwargs(step: Optional[int] = None) -> Dict[str, object]:
+        """rasterization() colour arguments for the current recipe/step."""
+        if not use_sh:
+            return {"colors": torch.sigmoid(params["colors"])}
+        active = (sh_degree if step is None
+                  else min(sh_degree, step // max(int(sh_increase_every), 1)))
+        return {"colors": torch.cat([params["sh0"], params["shN"]], dim=1),
+                "sh_degree": int(active)}
+    strat_cfg = dict(
         refine_start_iter=500,
         refine_stop_iter=min(iters // 2 + 500, 15_000),
         reset_every=3000,
         refine_every=100,
         verbose=False,
     )
-    strategy.check_sanity(params, optimizers)
-    state = strategy.initialize_state(scene_scale=scene_scale)
+    if strategy_kwargs:
+        strat_cfg.update(strategy_kwargs)
+    strategy = DefaultStrategy(**strat_cfg)
+    if densify:
+        strategy.check_sanity(params, optimizers)
+        state = strategy.initialize_state(scene_scale=scene_scale)
 
     frame_ids = list(range(0, len(ds), frame_stride))
     # Preload the training views once (resized to the training resolution).
@@ -223,36 +389,140 @@ def fit_gaussians(
         img = F.interpolate(
             img, size=(camera.height, camera.width), mode="bilinear", align_corners=False
         )[0].permute(1, 2, 0).contiguous()
+        if store_views_uint8:
+            img = (img.clamp(0, 1) * 255).round().to(torch.uint8)
         views.append((img, ds[i].pose_cw))
     K = camera.K(device=dev)[None]
 
+    use_depth = depth_weight > 0.0
+    depths = None
+    if use_depth:
+        # Sensor depth, resized to the fit resolution with NEAREST (bilinear
+        # would average across depth discontinuities) and kept as uint16
+        # millimetres on the host: exact, and a quarter of the RAM of the
+        # preloaded colour views.
+        depths = []
+        for i in frame_ids:
+            d = read_depth(ds[i].depth_path)[None, None]
+            if d.shape[-2:] != (camera.height, camera.width):
+                d = F.interpolate(d, size=(camera.height, camera.width), mode="nearest")
+            d = d[0, 0]
+            mm = torch.where(torch.isfinite(d), (d * 1000.0).round().clamp(0, 65534),
+                             torch.zeros_like(d))
+            depths.append(mm.to(torch.uint16).contiguous())
+
+        def _render_depth(idx):
+            _, T = views[idx]
+            with torch.no_grad():
+                r, a, _ = rasterization(
+                    means=params["means"], quats=params["quats"],
+                    scales=torch.exp(params["scales"]),
+                    opacities=torch.sigmoid(params["opacities"]),
+                    viewmats=T.to(dev)[None], Ks=K, width=camera.width,
+                    height=camera.height, packed=False, render_mode="RGB+ED",
+                    **_colour_kwargs(),
+                )
+            return r[0, ..., 3], a[0, ..., 0]
+
+        if depth_scale is None:
+            # Median ratio rendered/sensor of the INITIAL Gaussians: the SfM
+            # pseudo-GT frame is not the Kinect's metric frame.
+            sel = torch.linspace(0, len(views) - 1,
+                                 min(depth_scale_frames, len(views))).round().long().tolist()
+            rr = []
+            for idx in sorted(set(sel)):
+                dr, al = _render_depth(idx)
+                ds_m = depths[idx].to(dev, torch.float32) / 1000.0
+                ok = ((ds_m >= depth_range[0]) & (ds_m <= depth_range[1])
+                      & (al >= depth_alpha_min) & torch.isfinite(dr) & (dr > 0))
+                if ok.sum() > 100:
+                    rr.append((dr[ok] / ds_m[ok]).flatten())
+            depth_scale = float(torch.cat(rr).median()) if rr else 1.0
+            print(f"      depth supervision: auto scale {depth_scale:.4f} "
+                  f"(sensor depth -> map frame), weight {depth_weight}")
+        else:
+            print(f"      depth supervision: scale {depth_scale:.4f}, weight {depth_weight}")
+
     for step in range(iters):
-        img, T_cw = views[int(torch.randint(len(views), (1,), generator=g))]
+        vi = int(torch.randint(len(views), (1,), generator=g))
+        img, T_cw = views[vi]
         gt = img.to(dev, non_blocking=True)
-        render, _, info = rasterization(
+        if gt.dtype == torch.uint8:
+            gt = gt.float() / 255.0
+        render, alphas, info = rasterization(
             means=params["means"],
             quats=params["quats"],
             scales=torch.exp(params["scales"]),
             opacities=torch.sigmoid(params["opacities"]),
-            colors=torch.sigmoid(params["colors"]),
             viewmats=T_cw.to(dev)[None],
             Ks=K,
             width=camera.width,
             height=camera.height,
             packed=False,
+            **({"render_mode": "RGB+ED"} if use_depth else {}),
+            **_colour_kwargs(step),
         )
-        strategy.step_pre_backward(params, optimizers, state, step, info)
-        loss = (render[0] - gt).abs().mean()
+        if densify:
+            strategy.step_pre_backward(params, optimizers, state, step, info)
+        rgb = render[0, ..., :3]
+        loss = (rgb - gt).abs().mean()
+        if ssim_fn is not None:
+            loss = (1.0 - ssim_lambda) * loss + ssim_lambda * (1.0 - ssim_fn(rgb, gt))
+        if use_depth:
+            d_sensor = depths[vi].to(dev, torch.float32, non_blocking=True) / 1000.0
+            d_render = render[0, ..., 3]
+            ok = ((d_sensor >= depth_range[0]) & (d_sensor <= depth_range[1])
+                  & (alphas[0, ..., 0] >= depth_alpha_min)).detach()
+            if ok.any():
+                loss = loss + depth_weight * (d_render[ok] - depth_scale * d_sensor[ok]).abs().mean()
         loss.backward()
-        strategy.step_post_backward(params, optimizers, state, step, info)
+        if densify:
+            strategy.step_post_backward(params, optimizers, state, step, info)
         for opt in optimizers.values():
             opt.step()
             opt.zero_grad(set_to_none=True)
+        if means_sched is not None:
+            means_sched.step()
         if log_every and step % log_every == 0:
             print(
-                f"      fit step {step:5d}: L1 {float(loss):.4f}, "
+                f"      fit step {step:5d}: loss {float(loss.detach()):.4f}, "
                 f"{params['means'].shape[0]} gaussians"
             )
+
+    psnr_fit = psnr_fit_baked = None
+    if psnr_frames > 0:
+        # PSNR on evenly spaced FIT views, as the fit renders them (SH when
+        # SH is on) and, with SH, as the exported map will render them
+        # (DC band baked into a view-independent colour).
+        with torch.no_grad():
+            sel = torch.linspace(0, len(views) - 1,
+                                 min(psnr_frames, len(views))).round().long().tolist()
+            baked = _sh0_to_rgb(params["sh0"][:, 0]) if use_sh \
+                else torch.sigmoid(params["colors"])
+            acc, acc_b = [], []
+            for idx in sorted(set(sel)):
+                img, T_cw = views[idx]
+                gt = img.to(dev)
+                if gt.dtype == torch.uint8:
+                    gt = gt.float() / 255.0
+                common = dict(
+                    means=params["means"], quats=params["quats"],
+                    scales=torch.exp(params["scales"]),
+                    opacities=torch.sigmoid(params["opacities"]),
+                    viewmats=T_cw.to(dev)[None], Ks=K, width=camera.width,
+                    height=camera.height, packed=False,
+                )
+                r, _, _ = rasterization(**common, **_colour_kwargs())
+                acc.append(float(10 * torch.log10(
+                    1.0 / ((r[0, ..., :3] - gt) ** 2).mean().clamp_min(1e-12))))
+                if use_sh:
+                    rb, _, _ = rasterization(**common, colors=baked)
+                    acc_b.append(float(10 * torch.log10(
+                        1.0 / ((rb[0, ..., :3] - gt) ** 2).mean().clamp_min(1e-12))))
+            psnr_fit = sum(acc) / len(acc)
+            psnr_fit_baked = (sum(acc_b) / len(acc_b)) if acc_b else psnr_fit
+            print(f"      fit PSNR on {len(acc)} train views: {psnr_fit:.2f} dB"
+                  + (f"  (DC-baked: {psnr_fit_baked:.2f} dB)" if use_sh else ""))
 
     with torch.no_grad():
         quats = params["quats"] / params["quats"].norm(dim=-1, keepdim=True).clamp_min(1e-8)
@@ -267,12 +537,20 @@ def fit_gaussians(
         ).reshape(-1, 3, 3)
         S2 = torch.exp(params["scales"]) ** 2
         covs = R @ torch.diag_embed(S2) @ R.transpose(-1, -2)
-        return {
+        colors = (_sh0_to_rgb(params["sh0"][:, 0]) if use_sh
+                  else torch.sigmoid(params["colors"]))
+        out = {
             "means": params["means"].detach(),
             "covs": covs.detach(),
-            "colors": torch.sigmoid(params["colors"]).detach(),
+            "colors": colors.detach(),
             "opacities": torch.sigmoid(params["opacities"]).detach(),
         }
+        if psnr_fit is not None:
+            out["psnr_fit"] = float(psnr_fit)
+            out["psnr_fit_baked"] = float(psnr_fit_baked)
+        if return_sh and use_sh:
+            out["sh"] = torch.cat([params["sh0"], params["shN"]], dim=1).detach()
+        return out
 
 
 # --------------------------------------------------------------------------
@@ -503,6 +781,7 @@ def train_edl_head(
     device: str = "cuda",
     seed: int = 0,
     verbose: bool = True,
+    objective: str = "edl",
 ) -> EvidentialHead:
     """Train the shared evidential head on (CLIP feature, pseudo-label) pairs.
 
@@ -516,7 +795,13 @@ def train_edl_head(
     structure* (ambiguous features earning higher vacuity than clean ones)
     only emerges with longer training -- empirically absent at ~20 epochs and
     present at 40-60 on toy data -- hence the default of 40.
+
+    ``objective="ce"`` trains the SAME architecture on the SAME data with
+    plain cross-entropy on the raw logits -- the softmax ablation baseline
+    (read its outputs with :func:`softmax_opinions` on ``head.net(x)``).
     """
+    if objective not in ("edl", "ce"):
+        raise ValueError(f"objective must be 'edl' or 'ce', got {objective!r}")
     head = EvidentialHead(in_dim=feats.shape[-1], num_classes=num_classes,
                           hidden=hidden).to(device)
     opt = torch.optim.Adam(head.parameters(), lr=lr)
@@ -529,8 +814,12 @@ def train_edl_head(
         total, nb = 0.0, 0
         for s in range(0, perm.numel(), batch_size):
             idx = perm[s : s + batch_size]
-            evidence = head(feats[idx])
-            loss = edl_loss(evidence, labels[idx], kl_weight=kl_w)
+            if objective == "ce":
+                loss = torch.nn.functional.cross_entropy(
+                    head.net(feats[idx]), labels[idx])
+            else:
+                evidence = head(feats[idx])
+                loss = edl_loss(evidence, labels[idx], kl_weight=kl_w)
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -549,6 +838,7 @@ def gaussian_opinions(
     obs_count: torch.Tensor,
     full_evidence_obs: float = 4.0,
     batch_size: int = 65536,
+    mode: str = "edl",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Per-Gaussian (beliefs, vacuities) from the head, evidence scaled by
     observation count: ``e_i <- e_i * min(1, n_i / full_evidence_obs)``.
@@ -556,14 +846,21 @@ def gaussian_opinions(
     Evidence accumulates with observations, so rarely-seen Gaussians are
     honestly vacuous (n = 0 gives u = 1 exactly), and cluster-level Yager
     fusion later turns any *disagreement* between members into extra vacuity.
+
+    ``mode="softmax"`` reads a CE-trained head via :func:`softmax_opinions`
+    (the ablation baseline; same output contract).
     """
     dev = next(head.parameters()).device
     beliefs, vacuities = [], []
     scale = (obs_count / full_evidence_obs).clamp(0.0, 1.0)
     for s in range(0, clip_feats.shape[0], batch_size):
         f = clip_feats[s : s + batch_size].to(dev)
-        e = head(f) * scale[s : s + batch_size, None].to(dev)
-        _, b, u = evidence_to_subjective_opinion(e)
+        sc = scale[s : s + batch_size].to(dev)
+        if mode == "softmax":
+            b, u = softmax_opinions(head.net(f), obs_scale=sc)
+        else:
+            e = head(f) * sc[:, None]
+            _, b, u = evidence_to_subjective_opinion(e)
         beliefs.append(b.cpu())
         vacuities.append(u.cpu())
     return torch.cat(beliefs), torch.cat(vacuities)
