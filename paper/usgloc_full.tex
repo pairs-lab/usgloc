@@ -1297,6 +1297,150 @@ average    & 1.05/0.33 & 85 & \textbf{0.98/0.32} & \textbf{89} \\
 \end{tabular}
 \end{table}
 
+\begin{table}[h]
+\caption{What the calibrated posterior is worth, on all 700 paired test
+queries. \emph{Failure detection}: threshold-free separation of the queries
+beyond 5\,cm; ACE is marginally the better failure detector here, on far fewer
+failures. \emph{Selective localization}: the largest accepted fraction for
+which 95\% of accepted poses stay within 5\,cm --- read \emph{within} a column,
+because the achievable coverage depends mostly on how many failures a method
+has at all, so the informative contrast for our signal is the random ordering
+rather than ACE. \emph{Accuracy against availability}: median / 90th percentile
+of the accepted set; rejecting by $\sigma_t$ cuts our median 43\% and our 90th
+percentile 86\%, against 20\% and 47\% for ACE by its inlier count, although
+ACE starts from a much shorter tail. For a cross-method statement about signal
+QUALITY use AUSE and the rank correlation of Table~\ref{tab:conf}, which
+normalize each signal against its own oracle. \textbf{Bold}: better of the two.}
+\label{tab:uncert-worth}
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& \method{} ($\sigma_t$) & ACE (inliers)\\
+\midrule
+\multicolumn{3}{@{}l}{\textit{failure detection ($>$5\,cm)}}\\
+ROC AUC $\uparrow$ & 0.952 & \textbf{0.958}\\
+FPR at 95\% recall $\downarrow$ & 19\% & \textbf{13}\%\\
+queries beyond 5\,cm & 96/700 & 20/700\\
+\midrule
+\multicolumn{3}{@{}l}{\textit{selective localization (95\% of accepted within 5\,cm)}}\\
+accepted fraction $\uparrow$ & \textbf{87.0\%} & random: 0.4\%\\
+\midrule
+\multicolumn{3}{@{}l}{\textit{accuracy against availability (med.\ / 90th pct, cm)}}\\
+keep 100\% & \textbf{0.83} / 8.77 & 0.87 / \textbf{2.68}\\
+keep 90\% & \textbf{0.74} / 3.29 & 0.80 / \textbf{2.12}\\
+keep 80\% & \textbf{0.63} / 1.90 & 0.75 / \textbf{1.61}\\
+keep 70\% & \textbf{0.56} / 1.56 & 0.71 / \textbf{1.46}\\
+keep 50\% & \textbf{0.47} / \textbf{1.22} & 0.70 / 1.42\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{The Rasterized Descriptor Field}
+\label{sec:locfeat}
+The correction of Sec.~\ref{sec:correction} matches the query against the
+\emph{rendered RGB} of the map. An alternative is to match it against a
+per-Gaussian descriptor field distilled onto the map and rasterized alongside
+the colour and vacuity channels, the representation STDLoc~\cite{stdloc}
+introduced. We built it (frozen SuperPoint~\cite{superpoint} descriptors,
+256-d, reduced per scene to 64-d by PCA at 93--96\% retained variance,
+4000 descriptor-only iterations with the Gaussian set, geometry, opacity and
+every evidential attribute frozen) and measured it end to end. The outcome is
+mixed in an informative way, and we report both halves.
+
+\textbf{It is three times more precise at the answer.} Correcting from the
+ground-truth pose on \emph{test} frames, the field reaches a floor of
+0.169\,cm on Chess and 0.320\,cm on Office where LoFTR on rendered RGB reaches
+0.520 and 1.079\,cm. The gain survives on frames neither the map nor the field
+was fitted on, so it is not overfitting.
+
+\textbf{Its basin of convergence is about 1\,cm.} Perturbing the start,
+the field degrades from 0.267\,cm at ground truth to 0.773 at 1\,cm and 1.580
+at 2\,cm, crossing LoFTR at roughly 1.5\,cm; LoFTR is nearly flat over the
+same sweep (0.763 to 1.040\,cm). Our retrieval shortlist never offers an
+anchor closer than 13\,cm on any scene, so the field cannot be used alone.
+
+\textbf{A staged matcher captures most of the gain.} Running LoFTR for
+$n_\mathrm{warm}$ rounds and the field thereafter beats LoFTR alone on six of
+seven scenes by 6--22\% (Table~I). Two mechanisms set $n_\mathrm{warm}$.
+LoFTR's render--match iteration does not stay at the answer: started from
+ground truth on Chess its error grows monotonically, 0.31, 0.42, 0.55, 0.58,
+0.56\,cm, to a fixed point about 0.5\,cm out, because the matches it finds on
+an imperfect render are systematically biased. The field then walks the pose
+back in, monotonically and slowly, and is still improving at round 20. So the
+warm-up must be long enough to enter the field's basin and no longer.
+
+\textbf{It fails on self-similar geometry, and no selection rule fixes it.}
+On Stairs every variant we tried is worse than LoFTR alone
+(Table~\ref{tab:stairs-grid}), and the ordering is monotone in how much the
+field influences the solve. The cause is visible in the posterior: on the
+Stairs queries beyond 5\,cm the mixture likelihood at the true pose is
+\emph{worse} than the condensed Gaussian's on 93--98\% of them, so the correct
+tread is not among the hypotheses at all --- every one of them agrees on the
+wrong one. That also explains why anchor agreement cannot help there, and why
+every rule that scores candidates by \emph{rendering} them fails: on a
+self-similar staircase the wrong tread renders almost exactly like the right
+one. A photometric arbiter picks the most accurate candidate only 30--35\% of
+the time, a virtual-view prescreen ranked by a coarse global descriptor gives
+3.59\,cm, pooling both match sets into one PnP gives 3.21\,cm, and spread
+escalation gives 5.65\,cm.
+
+\textbf{No train-side criterion predicts the failure.} Under test-like
+validation (anchors within 40 frames and the query's own sequence hidden)
+validation \emph{prefers} the field matcher on Stairs, 0.92 against 1.27\,cm,
+while the test split prefers LoFTR, 2.39 against 3.37\,cm: the ordering
+inverts. We therefore do not select the matcher per scene, and Table~I reports
+one uniform configuration.
+
+\textbf{What else we measured and rejected.} Adding the pose-free landmark
+pose as an extra hypothesis is a wash (Office no gain; Stairs 48 frames better
+against 49 worse). Using it to \emph{rank} retrieval anchors instead of CLIP is
+also a wash (Office 26/29/45 better/worse/unchanged, Stairs 46/48/6).
+Widening the shortlist from 10 to 30 moves Stairs 3.37 to 3.04\,cm and raising
+$K$ from 3 to 6 adds nothing. Anchor stride 20, 10 and 5 give Office 1.09,
+1.11 and 1.09\,cm: denser anchors do not help when the ranking cannot find
+them. Gentle densification leaves Office at 1.11 against 1.09\,cm with test
+PSNR unchanged. View-dependent colour is the sharpest of these: optimizing the
+per-Gaussian colours \emph{against the test views} recovers 4.30\,dB on Office
+and 3.50 on Chess, which shows the deficit is appearance rather than geometry,
+but a spherical-harmonic fit to degree 3 recovers only 0.25\,dB of it on test
+views and leaves the median unchanged at 1.08 against 1.09\,cm. Most of that
+oracle headroom is per-view residual that nothing fitted from training views
+can reach.
+
+\begin{table}[h]
+\caption{Stairs, every configuration of the correction we measured (100 test
+queries, seed 0, identical frames), ordered by median. Every variant that uses
+the descriptor field is worse than LoFTR on rendered RGB alone, and the
+ordering is monotone in how much the field influences the solve. \textbf{Bold}:
+the adopted configuration. $^n$: within per-frame noise of it --- paired on
+identical frames these split 48/49 and 46/48 better/worse, so the lower median
+is not an improvement and we do not claim one. Nothing here beats the adopted
+configuration, so no row is marked best.}
+\label{tab:stairs-grid}
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Correction configuration & med.\ cm/$^\circ$ & SR (\%)\\
+\midrule
+\quad $+$ landmark hypothesis$^n$ & 2.24/0.67 & 58\\
+\quad $+$ landmark-ranked retrieval$^n$ & 2.36/0.69 & 55\\
+LoFTR on rendered RGB (adopted) & \textbf{2.39}/\textbf{0.64} & \textbf{57}\\
+LoFTR, stabilised re-fit map & 2.93/0.68 & 53\\
+staged $+$ shortlist 30 & 3.04/0.80 & 56\\
+staged $+$ shortlist 30, $K{=}6$ & 3.12/0.78 & 52\\
+pooled (both match sets, one PnP) & 3.21/0.71 & 56\\
+staged $+$ photometric arbiter & 3.27/0.72 & 54\\
+staged (LoFTR$\times$5 then field) & 3.37/0.87 & 53\\
+staged $+$ virtual-view prescreen & 3.59/0.79 & 56\\
+staged, no photometric refinement & 3.83/0.83 & 55\\
+staged, re-fit map $+$ rebuilt field & 4.02/0.84 & 54\\
+staged $+$ spread escalation & 5.65/0.80 & 49\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{12Scenes}
 \label{sec:12scenes}
 Table~II of the letter reports 12Scenes~\cite{twelvescenes} under the SfM pseudo-ground truth. Table~\ref{tab:12scenes-full} gives the per-scene numbers behind it: ACE re-run by us with the released 12Scenes pseudo-GT heads and the authors' solver on 100 frames per scene selected by the same rule as in Sec.~\ref{sec:ace}, and \method{} on the identical frames with the frozen 7Scenes configuration (Sec.~\ref{sec:impl}: $640{\times}480$, 20k-iteration maps, matching correction on, one pooled evidential head trained on the 12Scenes mask banks). \TODO{fill \method{} columns from results/corr12\_seed0 when batch\_12scenes finishes}

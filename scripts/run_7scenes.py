@@ -468,6 +468,20 @@ def parse_args():
                          "'pooled' with LoFTR in one PnP, 'stage' after "
                          "--corr-feat-stage LoFTR rounds. The field paths need "
                          "--corr-feats.")
+    ap.add_argument("--landmark-retrieval", type=int, default=0,
+                    help=">0: SELECT the retrieval shortlist with the pose-free "
+                         "landmark stage instead of CLIP. For each query the "
+                         "landmark solve gives an absolute pose with no anchor, "
+                         "and the N anchors geometrically NEAREST that pose become "
+                         "the shortlist. Motivation: the CLIP shortlist never "
+                         "offers an anchor closer than 13 cm on any scene (closest "
+                         "of top-8: heads 12.9, chess 25.4, stairs 27.0, office "
+                         "29.1, pumpkin 30.5, kitchen 31.7, fire 34.3 cm), and "
+                         "initialisation distance is the dominant per-query "
+                         "predictor of final error. Needs --landmark-init's field "
+                         "(the corrector is shared). Distinct from --landmark-init, "
+                         "which merely ADDS the landmark pose as one more "
+                         "hypothesis and was measured to be a wash.")
     ap.add_argument("--use-sh", action="store_true",
                     help="render VIEW-DEPENDENT colour: substitute the map's "
                          "sh_coeffs (N,K,3) for its diffuse colors (N,3). Our "
@@ -734,7 +748,8 @@ def main():
               + (f", wthr {args.corr_wvac_thr:g}" if args.corr_wvac_thr > 0 else "")
               + ")")
     lm_corrector = None
-    if args.landmark_init:
+    # --landmark-retrieval needs the same corrector, so build it for either flag.
+    if args.landmark_init or args.landmark_retrieval > 0:
         from usgloc import locfeat as _locfeat
         from usgloc.landmarks import LandmarkCorrector
 
@@ -898,7 +913,36 @@ def main():
             instances = _retry(lambda: move_instances(front_end.encode(bgr), device),
                                _lbl + " encode")
             cand = None
-            if anchor_globals is not None:
+            if args.landmark_retrieval > 0 and lm_corrector is not None:
+                # Landmark-guided retrieval: the pose-free landmark solve gives an
+                # absolute pose with NO anchor, and the anchors geometrically
+                # nearest that pose become the shortlist.  CLIP ranks anchors by
+                # whole-image appearance, which on every scene leaves the nearest
+                # anchor outside the top-10; this ranks them by the quantity that
+                # actually predicts the final error.
+                _gf = resize_image(img_full, 640, 480).to(device)
+                gq = (0.299 * _gf[..., 0] + 0.587 * _gf[..., 1]
+                      + 0.114 * _gf[..., 2]).clamp(0, 1)   # as gray_full below
+                _lm = lm_corrector.correct(gq, emap.submaps[0].anchor_pose)
+                if _lm.success:
+                    Clm = -(_lm.T[:3, :3].transpose(0, 1) @ _lm.T[:3, 3])
+                    Ca = torch.stack([
+                        -(sm.anchor_pose[:3, :3].transpose(0, 1) @ sm.anchor_pose[:3, 3])
+                        for sm in emap.submaps])
+                    d = (Ca - Clm[None]).norm(dim=-1)
+                    if args.val_stride > 0 and (args.val_exclude_anchors > 0
+                                                or args.val_exclude_seq):
+                        far = torch.tensor(
+                            [abs(f - i) >= args.val_exclude_anchors for f in kept_frames],
+                            device=d.device)
+                        if args.val_exclude_seq:
+                            far &= torch.tensor([sq != rec_ds.seq for sq in anchor_seqs],
+                                                device=d.device)
+                        d = torch.where(far, d, torch.full_like(d, float("inf")))
+                    k = int(min(args.landmark_retrieval, int(torch.isfinite(d).sum())))
+                    if k > 0:
+                        cand = d.topk(k, largest=False).indices.tolist()
+            if cand is None and anchor_globals is not None:
                 qg = _retry(lambda: front_end.encode_global(bgr), _lbl + " global")
                 sims = anchor_globals @ qg
                 n_vis = anchor_globals.shape[0]
