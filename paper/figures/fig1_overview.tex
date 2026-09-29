@@ -7,8 +7,8 @@
 %  * Band A: the online pose flow (query -> matching -> hypotheses ->
 %    refinement -> calibrated posterior);
 %  * Band B: the EVIDENCE channel in gold underneath, injected upward into
-%    Band A at exactly three points (gate, per-pixel weight, temperature) --
-%    the paper's thesis as the figure's macro-structure;
+%    Band A at four points (gate, correspondence gate, per-pixel weight,
+%    temperature) -- the paper's thesis as the figure's macro-structure;
 %  * every arrow carries an artifact glyph and a math symbol from the text;
 %  * two accent colors only: gold = evidence, blue = pose distributions.
 \documentclass[tikz,border=3pt]{standalone}
@@ -70,12 +70,12 @@
 
 % evidential encoding
 \node[mod, text width=25mm] (enc) at (6.05, 1.0)
-  {Evidential\\encoding (IV-B)\\{\scriptsize $\mathcal{Q}_j{=}(\mathbf{x},a,f^q,\mathbf{p}^q,u^q)$}};
+  {Evidential\\encoding (III-B)\\{\scriptsize $\mathcal{Q}_j{=}(\mathbf{x},a,f^q,\mathbf{p}^q,u^q)$}};
 \draw[flow] (4.5, 1.0) -- (enc.west);
 
 % gated matching, with match-line glyph showing gating
 \node[mod, text width=24mm, minimum height=13mm] (match) at (9.35, 1.0)
-  {Vacuity-gated\\matching (IV-C)};
+  {Vacuity-gated\\matching (III-C)};
 \draw[flow] (enc.east) -- node[sym, above=0mm] {$d^q_j$} (match.west);
 % match glyph below the box: two frames, kept (green) and gated-out (orange) matches
 \begin{scope}[shift={(8.55, 0.28)}]
@@ -100,16 +100,19 @@
 \draw[flow] (match.east) -- node[sym, above=0mm] {$s_{ij}$ (6)} (12.0, 1.0);
 
 % vacuity-weighted refinement
-\node[mod, text width=26mm, minimum height=13mm] (refine) at (16.0, 1.0)
-  {Vacuity-weighted\\refinement (IV-D)\\{\scriptsize $E(\bm{\xi})$ (9)}};
-\draw[flow] (13.85, 1.0) -- (refine.west);
+\node[mod, text width=26mm, minimum height=13mm] (refine) at (19.5, 1.0)
+  {Vacuity-weighted\\refinement (III-E)\\{\scriptsize $E(\bm{\xi})$ (10)}};
+\node[mod, text width=24mm, minimum height=13mm] (corr) at (16.35, 1.0)
+  {Matching\\correction (III-D)\\{\scriptsize PnP on gated matches (8)}};
+\draw[flow] (13.85, 1.0) -- (corr.west);
+\draw[flow] (corr.east) -- node[sym, above=0mm] {$T'_k$} (refine.west);
 
 % ---- calibrated pose head ----
-\node[mod, text width=21mm] (lap) at (19.35, 1.0)
-  {Laplace cov.\ (10)\\{\scriptsize $\bm{\Sigma}_{\bm{\xi},k}\!\leftarrow\!\tau\hat\sigma^2(J^{\!\top}\!WJ)^{-1}$}};
+\node[mod, text width=21mm] (lap) at (22.85, 1.0)
+  {Laplace cov.\ (11)\\{\scriptsize $\bm{\Sigma}_{\bm{\xi},k}\!\leftarrow\!\tau\hat\sigma^2(J^{\!\top}\!WJ)^{-1}$}};
 \draw[flow] (refine.east) -- node[sym, above=0mm] {$\bm{\xi}^\star_k$} (lap.west);
 % GMM glyph: overlapping covariance ellipses
-\begin{scope}[shift={(21.75, 0.82)}]
+\begin{scope}[shift={(25.25, 0.82)}]
   \draw[poseC!85, line width=0.6pt, rotate around={18:(0.32,0.28)}]
     (0.32,0.28) ellipse (4.6mm and 2.4mm);
   \draw[poseC!85, line width=0.6pt, rotate around={-12:(0.95,0.46)}]
@@ -117,9 +120,9 @@
   \fill[poseC] (0.32,0.28) circle (0.5pt);
   \fill[poseC] (0.95,0.46) circle (0.5pt);
 \end{scope}
-\node[sub, anchor=north, text width=26mm] at (22.4, 0.55)
+\node[sub, anchor=north, text width=26mm] at (25.9, 0.55)
   {$p(T|I_q,\mathcal{M})$ (12)\\condense $\rightarrow$ EKF};
-\draw[flow] (lap.east) -- (21.15, 1.0);
+\draw[flow] (lap.east) -- (24.65, 1.0);
 
 % ============================== BAND B ======================================
 % opinion simplex glyph
@@ -135,7 +138,7 @@
   \node[font=\scriptsize\color{outLn}] at (0.68,-0.02) {$\oplus$};
   \draw[outLn, line width=0.6pt] (0.9,-0.28) -- (1.5,-0.28) -- (1.2,0.22) -- cycle;
   \node[sub, anchor=north, text width=34mm] at (0.78,-0.56)
-    {conflict-aware fusion (5)\\$\tilde{u}{=}\min(1,u{+}\bar\eta)$};
+    {conflict-aware fusion (4)\\$\tilde{u}{=}\min(1,u{+}\bar\eta)$};
 \end{scope}
 % vacuity heatmap glyph U_r
 \begin{scope}[shift={(15.4,-2.65)}]
@@ -145,10 +148,10 @@
     }
   }
   \draw[ink!55, line width=0.4pt] (0,0) rectangle (1.2,0.72);
-  \node[sub, anchor=north] at (0.6,-0.08) {rendered vacuity $U_r$ (8)};
+  \node[sub, anchor=north] at (0.6,-0.08) {rendered vacuity $U_r$ (9)};
 \end{scope}
 % temperature chip
-\node[mod, draw=outLn, text width=16mm, font=\scriptsize\color{ink}] (temp) at (19.35,-2.4)
+\node[mod, draw=outLn, text width=16mm, font=\scriptsize\color{ink}] (temp) at (22.85,-2.4)
   {temperature $\tau$\\(held-out fit)};
 
 % the gold evidence rail
@@ -157,10 +160,12 @@
 \draw[evflow] (10.35,-2.5) -- node[sym, above=0mm] {$\tilde{u}_i$ per splat} (15.3,-2.35);
 \draw[evflow] (16.7,-2.35) -- (temp.west);
 
-% three upward injections into Band A
+% four upward injections into Band A
 \draw[inject] (9.35,-1.95) -- node[sym, right=0.2mm]
   {gate $e^{-\lambda_u(\tilde{u}^G_i+u^q_j)}$} (match.south);
-\draw[inject] (16.0,-2.0) -- node[sym, right=0.2mm]
+\draw[inject] (16.35,-2.0) -- node[sym, left=0.2mm]
+  {$\bar U_r{\le}u_{\max}$} (corr.south);
+\draw[inject] (19.5,-2.15) -- node[sym, right=0.2mm]
   {$w{=}e^{-\gamma U_r}$} (refine.south);
 \draw[inject] (temp.north) -- node[sym, right=0.2mm] {$\tau$} (lap.south);
 
@@ -174,18 +179,18 @@
         fit={(enc) (match) (hyplab) (14.0,0.2)}] (cpan) {};
   % fine panel
   \node[fill=fineBg, draw=fineLn, rounded corners=3pt, inner sep=2.8mm,
-        fit=(refine)] (fpan) {};
+        fit={(corr) (refine)}] (fpan) {};
   % calibrated pose head panel
   \node[fill=poseC!8, draw=poseC!60, rounded corners=3pt, inner sep=2.8mm,
-        fit={(lap) (23.5,0.35) (23.5,1.55)}] (ppan) {};
+        fit={(lap) (27.0,0.35) (27.0,1.55)}] (ppan) {};
   % evidence band
   \node[fill=outBg, draw=outLn!70, rounded corners=3pt, inner sep=2.8mm,
         fit={(5.45,-1.8) (temp) (16.6,-3.4) (5.45,-3.4)}] (epan) {};
 \end{scope}
 \node[panlab, anchor=south west] at (offpan.north west)
-  {Offline: evidential mapping (IV-A)};
+  {Offline: evidential mapping (III-A)};
 \node[panlab, anchor=south west] at (cpan.north west) {Coarse (IV-B,C)};
-\node[panlab, anchor=south west] at (fpan.north west) {Fine (IV-D)};
+\node[panlab, anchor=south west] at (fpan.north west) {Correction + fine (IV-D,E)};
 \node[panlab, anchor=south west, color=poseC] at (ppan.north west)
   {Calibrated pose posterior};
 \node[panlab, anchor=south west, color=outLn!80!ink] at (epan.north west)
