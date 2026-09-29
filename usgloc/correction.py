@@ -219,6 +219,14 @@ class EvidentialMatchCorrector:
                                      # first successful field round takes over, and a
                                      # LoFTR round is returned only if no field round
                                      # ever succeeds.
+        stage_warm: str = 'loftr',   # 'stage': which matcher runs the WARM-UP rounds.
+                                     # The warm-up only has to land inside the field's
+                                     # ~1 cm basin, so what matters is its basin, not
+                                     # its precision -- and on the perturbed train-side
+                                     # floor MASt3R is far better at that than LoFTR
+                                     # (Stairs 0.68 vs 2.17, Office 0.91 vs 1.41 cm).
+                                     # LoFTR leaves Stairs at ~2.2 cm, outside the
+                                     # basin, which is why staged LoFTR loses there.
         arbiter: str = 'none',       # none | stage | rounds -- how the returned pose is
                                      # chosen.  'none' keeps the inlier-count rule above.
                                      # 'stage' re-renders the best warm-up pose and the
@@ -456,6 +464,9 @@ class EvidentialMatchCorrector:
         self.feat_fine_thr = float(feat_fine_thr)
         self.feat_max = int(feat_max)
         self.feat_stage = int(feat_stage)
+        if stage_warm not in ("loftr", "mast3r"):
+            raise ValueError(f"stage_warm must be loftr | mast3r, got {stage_warm!r}")
+        self.stage_warm = stage_warm
         if arbiter not in ("none", "stage", "rounds"):
             raise ValueError(f"arbiter must be none | stage | rounds, got {arbiter!r}")
         self.arbiter = arbiter
@@ -471,7 +482,15 @@ class EvidentialMatchCorrector:
         # in which case render() takes the byte-for-byte original code path.
         self._lf = None
         dev = emap.means.device
-        if matcher in ("loftr", "pooled", "stage"):
+        if matcher not in ("loftr", "mast3r", "roma", "feat", "pooled", "stage"):
+            raise ValueError(
+                f"unknown matcher {matcher!r} "
+                "(loftr | mast3r | roma | feat | pooled | stage)")
+        _needs_loftr = (matcher in ("loftr", "pooled")
+                        or (matcher == "stage" and stage_warm == "loftr"))
+        _needs_mast3r = (matcher == "mast3r"
+                         or (matcher == "stage" and stage_warm == "mast3r"))
+        if _needs_loftr:
             import copy
 
             from kornia.feature import LoFTR
@@ -487,7 +506,7 @@ class EvidentialMatchCorrector:
             cfg["match_coarse"]["thr"] = float(conf_min)
             self.matcher = LoFTR(pretrained="indoor_new", config=cfg).eval().to(dev)
             assert abs(self.matcher.coarse_matching.thr - conf_min) < 1e-9
-        elif matcher == "mast3r":
+        if _needs_mast3r:
             self.matcher, self._fast_nn = _load_mast3r(mast3r_root, mast3r_ckpt, dev)
             self.mast3r_subsample = int(mast3r_subsample)
             self.mast3r_conf = mast3r_conf
@@ -500,7 +519,7 @@ class EvidentialMatchCorrector:
             s = float(mast3r_size) / max(camera.width, camera.height)
             self._m_hw = (max(16, int(round(camera.height * s / 16)) * 16),
                           max(16, int(round(camera.width * s / 16)) * 16))
-        elif matcher == "roma":
+        if matcher == "roma":
             # RoMa (Edstedt et al., CVPR 2024): dense warp + certainty from a
             # frozen DINOv2-L/14 coarse encoder and a VGG19 fine refiner.
             # Images are resized to the square coarse / fine resolutions
@@ -538,12 +557,9 @@ class EvidentialMatchCorrector:
             del w, w_dino
             self.roma_num = int(roma_num)
             self.roma_seed = int(roma_seed)
-        elif matcher == "feat":
-            pass                      # no RGB matcher; the field is set up below
-        else:
-            raise ValueError(
-                f"unknown matcher {matcher!r} "
-                "(loftr | mast3r | roma | feat | pooled | stage)")
+        # 'feat' needs no RGB matcher at all; the field is set up below. The
+        # name was validated at the top of this block, so there is no else here:
+        # each backend is built independently because 'stage' needs two of them.
         if matcher in ("feat", "pooled", "stage"):
             # The descriptor field must already be on the map: build it with
             # scripts/analysis/train_locfeat.py and either bake it into the .pt
@@ -1222,7 +1238,14 @@ class EvidentialMatchCorrector:
             rgb_q, gray_q = None, query
         assert gray_q.shape == (H, W), f"query {tuple(gray_q.shape)} != camera {(H, W)}"
         img0 = None
-        if self.matcher_name in ("loftr", "pooled", "stage"):
+        _stage_m3 = self.matcher_name == "stage" and self.stage_warm == "mast3r"
+        if _stage_m3:
+            # The warm-up is MASt3R, so img0 must be its prepared RGB; the field
+            # rounds read self._q_coarse / _q_fine and do not use img0 at all.
+            if rgb_q is None:
+                rgb_q = gray_q.to(dev, torch.float32)[..., None].expand(H, W, 3)
+            img0 = self._mast3r_prep(rgb_q)
+        elif self.matcher_name in ("loftr", "pooled", "stage"):
             img0 = gray_q.to(dev, torch.float32)[None, None]
         elif self.matcher_name != "feat":
             if rgb_q is None:
@@ -1263,8 +1286,11 @@ class EvidentialMatchCorrector:
                 # the field is the better matcher AT the answer and the worse
                 # one far from it, so let each do what it is good at.
                 if warm:
-                    corr = self._match_loftr(
-                        img0, _to_gray(out["rgb"])[None, None].to(torch.float32))
+                    if self.stage_warm == "mast3r":
+                        corr = self._match_mast3r(img0, out["rgb"])
+                    else:
+                        corr = self._match_loftr(
+                            img0, _to_gray(out["rgb"])[None, None].to(torch.float32))
                 else:
                     corr = self._match_feat(out)
             elif self.matcher_name == "pooled":
@@ -1542,6 +1568,55 @@ class EvidentialMatchCorrector:
                                     n_matches=best.n_matches, reproj_px=best.reproj_px,
                                     rounds=best.rounds)
         return best
+
+    @torch.no_grad()
+    def fuse_across_starts(self, results) -> Optional[CorrectionResult]:
+        """One PnP over the correspondences of SEVERAL corrected hypotheses.
+
+        Each :class:`CorrectionResult` carries the inlier correspondences its
+        own correction survived with: ``obj`` in WORLD coordinates and ``img``
+        in the pixels of the SAME query image.  So every hypothesis constrains
+        the identical unknown pose, and their correspondence sets can simply be
+        concatenated and solved once -- which is a strictly better-conditioned
+        problem than any one of them, because the anchors look at the scene from
+        geometrically different viewpoints.
+
+        The pipeline otherwise corrects each retrieval anchor independently and
+        keeps only the winner, discarding the others' correspondences entirely.
+        This recovers them.  Returns None when fewer than two hypotheses
+        succeeded with correspondences, in which case the caller keeps its own
+        best.
+
+        Reuses ``_pooled_solve``, which is the same machinery the multi-ROUND
+        accumulation uses, so the gate, the threshold and the refinement are
+        identical to the single-hypothesis path.
+        """
+        usable = [c for c in results
+                  if c is not None and c.success
+                  and c.obj is not None and len(c.obj) >= 4]
+        if len(usable) < 2:
+            return None
+        best = max(usable, key=lambda c: c.inliers)
+        # (obj, img, rms, per-correspondence error) -- the tuple _pool expects.
+        rounds = []
+        for c in usable:
+            e = self._reproj_err(
+                np.ascontiguousarray(c.obj, dtype=np.float64),
+                np.ascontiguousarray(c.img, dtype=np.float64),
+                *self._rt_of(c.T))
+            rounds.append((np.ascontiguousarray(c.obj, dtype=np.float64),
+                           np.ascontiguousarray(c.img, dtype=np.float64),
+                           float(c.reproj_px), e))
+        out = self._pooled_solve(rounds, best)
+        return replace(out, acc_rounds=len(usable))
+
+    def _rt_of(self, T):
+        """(rvec, tvec) of a (4, 4) camera-from-world pose, for cv2."""
+        import cv2
+        R = np.ascontiguousarray(T[:3, :3].double().cpu().numpy())
+        rv, _ = cv2.Rodrigues(R)
+        tv = np.ascontiguousarray(T[:3, 3].double().cpu().numpy()).reshape(3, 1)
+        return rv, tv
 
     # ---- adaptive virtual-view search ------------------------------------
     # Mechanism: SplatHLoc (adaptive virtual-view retrieval) -- cited, not

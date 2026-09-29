@@ -128,6 +128,7 @@ _EST_KEYS = {"lift": ("lift", str), "band": ("lift_band", float),
              "lfsp": ("feat_subpix", float), "lftop": ("feat_top", float),
              "lffm": ("feat_fine", str), "lffthr": ("feat_fine_thr", float),
              "lfmax": ("feat_max", int), "lfst": ("feat_stage", int),
+             "warm": ("stage_warm", str),
              # photometric arbitration of the returned pose
              "arb": ("arbiter", str), "arbm": ("arb_margin", float),
              "arbc": ("arb_min_cover", float),

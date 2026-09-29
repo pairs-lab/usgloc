@@ -446,6 +446,24 @@ def parse_args():
                          "'plb' (poselib's own robust bundle)")
     ap.add_argument("--corr-refine-sigma", type=float, default=1.0,
                     help="robust scale of the IRLS refinement, px")
+    ap.add_argument("--corr-refine-all", action="store_true",
+                    help="run the final refinement over EVERY fed match instead of "
+                         "only the RANSAC inliers. Measured on the perturbed "
+                         "train-side floor (results/estimator_lift/floor): with "
+                         "--corr-refine lm+huber it takes Office 1.41 -> 0.94 and "
+                         "Stairs 2.17 -> 1.80 cm, because a hard inlier set throws "
+                         "away correspondences that a robust loss can still use.")
+    ap.add_argument("--corr-lift", default="depth",
+                    choices=["depth", "xyz", "maxw", "median", "band",
+                             "maxw_d", "median_d", "band_d"],
+                    help="how a render-side keypoint becomes a 3D point. 'depth' "
+                         "(default) uses the rendered EXPECTED depth, which blends "
+                         "fore- and background into a phantom surface at every "
+                         "silhouette. 'median' recomputes the compositing weight "
+                         "profile along the ray and takes its median-weight depth; "
+                         "'xyz' reads the alpha-normalised blended world position "
+                         "off the rasteriser instead, with no camera-model "
+                         "inversion. See usgloc/correction.py.")
     ap.add_argument("--corr-pl-iters", type=int, default=10000,
                     help="poselib RANSAC max_iterations (poselib's own default "
                          "is 100000, which is what STDLoc runs)")
@@ -513,6 +531,26 @@ def parse_args():
                          "keep their rounds.")
     ap.add_argument("--corr-stop-dr", type=float, default=0.0,
                     help="companion rotation threshold for --corr-stop-dt (deg)")
+    ap.add_argument("--fuse-starts", action="store_true",
+                    help="pool the correspondences of EVERY corrected hypothesis "
+                         "into one PnP and let the result compete as a further "
+                         "candidate. Each correction's inliers are 3D world points "
+                         "against pixels of the same query image, so they all "
+                         "constrain the identical pose; the pipeline otherwise "
+                         "keeps only the winning hypothesis and discards the rest. "
+                         "Motivation: on Office the field reaches a 0.32 cm floor "
+                         "from ground truth on test frames but the pipeline reports "
+                         "1.08, so the loss is convergence from a real anchor, not "
+                         "map quality -- and three anchors see the scene from "
+                         "geometrically different places.")
+    ap.add_argument("--corr-stage-warm", default="loftr", choices=["loftr", "mast3r"],
+                    help="--corr-matcher stage: which matcher runs the WARM-UP "
+                         "rounds. The warm-up only has to land inside the field's "
+                         "~1 cm basin, so its BASIN matters, not its precision. On "
+                         "the perturbed train-side floor MASt3R is far better at "
+                         "that than LoFTR (Stairs 0.68 vs 2.17, Office 0.91 vs "
+                         "1.41 cm); LoFTR leaves Stairs around 2.2 cm, outside the "
+                         "basin, which is why staged LoFTR loses on that scene.")
     ap.add_argument("--corr-arbiter", default="none",
                     choices=["none", "stage", "rounds"],
                     help="how the returned pose is chosen among the rounds: "
@@ -690,6 +728,7 @@ def main():
                          vsearch_seed=args.vsearch_seed,
                          vsearch_score=args.vsearch_score,
                          vsearch_prescreen=args.vsearch_prescreen,
+                         fuse_starts=args.fuse_starts,
                          vsearch_around=args.vsearch_around,
                          vsearch_verify=not args.vsearch_no_verify,
                          vsearch_gain=args.vsearch_gain,
@@ -730,9 +769,11 @@ def main():
                               else (0.3 if args.corr_matcher in ("mast3r", "roma") else 0.0)),
             roma_model=args.corr_roma_model, roma_num=args.corr_roma_num,
             feat_stage=args.corr_feat_stage, arbiter=args.corr_arbiter,
+            stage_warm=args.corr_stage_warm,
             stop_dt=args.corr_stop_dt, stop_dr=args.corr_stop_dr,
             solver=args.corr_solver, reproj_thresh_px=args.corr_reproj_px,
             refine=args.corr_refine, refine_sigma=args.corr_refine_sigma,
+            refine_all=args.corr_refine_all, lift=args.corr_lift,
             pl_max_iters=args.corr_pl_iters,
             wvac=args.corr_wvac, wvac_thr=args.corr_wvac_thr,
         )

@@ -325,6 +325,17 @@ def refine_match_windows(
         INDICES (x, y).
     """
     D, H, W = query_fine.shape
+    # `cq`/`cr` index the COARSE grid, which is the encoder's 1/8 grid, and the
+    # unfold below strides by `win`.  The two only line up when win equals that
+    # stride: any other value silently mis-indexes and faults inside the gather
+    # (observed as an 'unspecified launch failure'), so the window size is not a
+    # free parameter and cannot be used to widen the matcher's basin.
+    if win != SUPERPOINT_STRIDE:
+        raise ValueError(
+            f"refine_match_windows: win must equal the encoder stride "
+            f"{SUPERPOINT_STRIDE}, got {win}. The fine window is tied to the "
+            f"coarse grid the match indices come from; widening the basin needs "
+            f"a search over neighbouring CELLS, not a larger window.")
     w_c = W // win
     ww = win * win
 

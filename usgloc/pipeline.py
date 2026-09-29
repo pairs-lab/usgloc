@@ -197,6 +197,16 @@ class PipelineConfig:
     vsearch_rounds: int = 1         # correction rounds spent per virtual view
     vsearch_seed: int = 0           # explicit; the RNG is forked in search()
     vsearch_score: str = "wmass"    # wmass | inliers | ratio | rms
+    fuse_starts: bool = False       # pool the CORRESPONDENCES of every corrected
+                                    # hypothesis into ONE PnP and add the result as a
+                                    # further candidate. Each correction's inliers are
+                                    # 3D world points against pixels of the SAME query
+                                    # image, so all of them constrain the identical
+                                    # pose; solving them together is better conditioned
+                                    # than any single anchor because the anchors view
+                                    # the scene from geometrically different places.
+                                    # Otherwise every non-winning hypothesis's
+                                    # correspondences are simply discarded.
     vsearch_prescreen: int = 0      # >0: two-stage search. All vsearch_n views are
                                     # RENDERED and ranked by a coarse global
                                     # appearance descriptor, and only this many get a
@@ -595,6 +605,18 @@ class USGLocPipeline:
                         scored.append((h, c, float(c.inliers)))
 
             _correct_batch(hyps)
+            if self.cfg.fuse_starts and len(scored) >= 2:
+                fused = self.corrector.fuse_across_starts([c for _, c, _ in scored])
+                if fused is not None and fused.success:
+                    # Enter the same competition as the individual snaps, on the
+                    # same criterion, so it can only be chosen when it wins.
+                    h0 = max(scored, key=lambda t: int(t[1].inliers))[0]
+                    sc = (_fidelity(fused.T) if self.cfg.corr_verify
+                          else float(fused.inliers))
+                    keep = (sc >= max(t[2] for t in scored)) if self.cfg.corr_verify \
+                        else True
+                    if keep:
+                        scored.append((h0, fused, sc))
             n_escalations = 0
             if self.cfg.escalate_inliers > 0 or self.cfg.escalate_ratio > 0:
                 def _cleared():

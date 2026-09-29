@@ -1385,6 +1385,25 @@ the time, a virtual-view prescreen ranked by a coarse global descriptor gives
 3.59\,cm, pooling both match sets into one PnP gives 3.21\,cm, and spread
 escalation gives 5.65\,cm.
 
+\textbf{What fixes it is a better LEADING matcher, not a better start.}
+The warm-up only has to deliver the pose into the field's basin, so what it
+needs is basin width, not precision --- and LoFTR simply does not have it on
+Stairs, where its perturbed floor is 2.17\,cm against the field's 1\,cm basin.
+MASt3R~\cite{mast3r} reaches 0.68\,cm there. Leading the cascade with MASt3R
+instead of LoFTR therefore costs nothing where LoFTR already converges into the
+basin (Chess 0.42 to 0.43, Heads 0.45 to 0.47, Kitchen 0.80 to 0.81\,cm) and
+recovers the scene where it does not (Stairs 3.37 to 2.22\,cm). Because the
+substitution is uniform it needs no per-scene decision, which is what makes it
+reportable where matcher SELECTION was not. Over the seven scenes it takes the
+average from 0.98 to 0.92\,cm and the success rate from 85 to 88\%, at roughly
+twice the query time and 9\,GB of GPU memory. It is not a free win on Stairs:
+MASt3R alone reaches 1.99\,cm there, better than the cascade's 2.22, so the
+field still costs something on that scene --- it is the other six that pay for
+it. We also note that the round budget matters little (Chess is identical at
+8 and 12 rounds, Stairs marginally better at 8) and that MASt3R twice triggered
+a CUDA launch-timeout on our hardware at 12 rounds, which is why the reported
+configuration uses 8.
+
 \textbf{No train-side criterion predicts the failure.} Under test-like
 validation (anchors within 40 frames and the query's own sequence hidden)
 validation \emph{prefers} the field matcher on Stairs, 0.92 against 1.27\,cm,
