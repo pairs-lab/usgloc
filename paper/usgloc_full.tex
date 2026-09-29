@@ -1404,6 +1404,29 @@ it. We also note that the round budget matters little (Chess is identical at
 a CUDA launch-timeout on our hardware at 12 rounds, which is why the reported
 configuration uses 8.
 
+\textbf{Where the remaining error lives, and why we stop here.} Office reports
+1.08\,cm against a 0.32\,cm floor measured on the same TEST frames from the
+ground-truth pose, so 0.76\,cm is lost between a retrieval anchor and that
+floor. Three experiments place that loss in systematic BIAS rather than in
+estimation noise, which is what makes it unreachable by a better estimator.
+First, pooling the correspondences of all $K$ corrected hypotheses into one PnP
+--- they are world-frame 3D points against pixels of the same query image, so
+they constrain the identical pose --- triples the constraints and moves nothing:
+Office 1.08 to 1.09\,cm with 97 of 100 queries unchanged, Pumpkin 0.93 to
+0.93 with 91 unchanged. Pooling reduces variance, so a null result at $3\times$
+the data is the signature of bias. Second, neither alternative 2D-3D lift helps:
+the median-ray lift is within noise on both scenes tried and inconsistent in
+direction (Office 33 frames better against 20 worse with no median change,
+Chess 19 worse against 10 better but three fewer gross failures), and reading
+the alpha-blended WORLD position off the rasteriser is far worse (Office
+7.88\,cm), because averaging 3D positions across a silhouette returns a point in
+empty space between the surfaces while averaging depth at least stays on a ray.
+The expected-depth lift we ship is therefore already the best of the three.
+Third, the initialisation is not the lever either: denser anchors (stride 20,
+10, 5 give Office 1.09, 1.11, 1.09\,cm), a wider shortlist, the pose-free
+landmark pose added as a hypothesis, and that same pose used to RANK anchors
+instead of CLIP are all within per-frame noise. What remains is the map itself.
+
 \textbf{No train-side criterion predicts the failure.} Under test-like
 validation (anchors within 40 frames and the query's own sequence hidden)
 validation \emph{prefers} the field matcher on Stairs, 0.92 against 1.27\,cm,
