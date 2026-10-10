@@ -172,6 +172,22 @@ The plan has three parts:
 - inlier-count-on-our-poses comes within 10% of σ_t on both AUSE and E-AURC;
 - ACE + PnP-cov + τ comes within 10% on NLL and E-AURC and has better coverage.
 
+**Implemented (2026-10-10)** in `scripts/analysis/uncertainty_fair.py`, which needs only numpy and scipy, runs on CPU and has tests in `tests/test_uncertainty_fair.py`. The ACE PnP covariance comes from the updated `scripts/analysis/run_ace_baseline.py`; write it to a new directory such as `results/ace_dsacstar_100_cov`.
+
+Clarifications fixed in code after an adversarial review:
+- **σ_t is ranked tempered.** It is scaled by each scene's train-side τ, as `pooled_calib.py` does, so the paper's 0.063 is the reference point. ACE's PnP σ_t is tempered by the same median rule, fitted leave-one-scene-out on ACE's own d².
+- **The NLL test uses the LOSO defensive mixture for both methods.** Under a single tempered Gaussian, the mean NLL mostly counts failures.
+- **Cross-method E-AURC is normalised** by each method's random-order E-AURC on its own errors.
+- **Kill rules are equivalence tests.** An insignificant advantage gives INCONCLUSIVE, never KILL.
+- **The external test is not scored unless ACE covers every scene.**
+
+Run it as:
+
+```bash
+python3 scripts/analysis/uncertainty_fair.py results/v2_seed0 <cascade run dir> \
+    --ace results/ace_dsacstar_100_cov --json results/fair_stage0.json
+```
+
 #### S0-B. Correctness fixes and audits (CPU about 1 h, then GPU 3–4 h overnight)
 
 **1. Audits.**

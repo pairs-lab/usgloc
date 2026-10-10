@@ -30,6 +30,11 @@ query frames, numpy + scipy only (no GPU, no torch):
     NLL comparison is like-for-like.  LOSO uses other scenes' TEST labels:
     disclose it next to the train-side row.
 
+sigma_t is ranked TEMPERED by each scene's stored train-side tau, as the
+paper's AUSE 0.063 (pooled_calib.py) and AUC 0.952 (uncertainty_benefit.py)
+are; the untempered row is printed alongside.  ACE's PnP sigma_t is tempered
+by the same median rule, fitted leave-one-scene-out on ACE's own d^2.
+
 Ranking metrics: AUSE exactly as the paper (first 90 % removed, 91-point
 grid, each curve normalised by its full-set mean; ``pooled_calib.py``),
 E-AURC (excess area under the risk-coverage curve; Geifman et al. 2019) at
@@ -38,6 +43,11 @@ E-AURC (excess area under the risk-coverage curve; Geifman et al. 2019) at
 at random and averaged.  Confidence intervals: paired bootstrap stratified by
 scene.  Relative improvements are (baseline - ours) / baseline, so positive
 means sigma_t is better.
+
+The pass/kill rules are spelled out in verdict(); the kill rules are
+equivalence tests ("ACE is within 10 %"), so an insignificant advantage is
+INCONCLUSIVE, never KILL.  Across methods, E-AURC is normalised by each
+method's random-order E-AURC on its own errors.
 
 NLL is compared as a paired DIFFERENCE in nats per query (a relative % is
 undefined for log-likelihoods): "ours beats ACE" means the 95 % CI of
@@ -102,14 +112,22 @@ def load_run(run, scenes):
                    "matcher": a.get("corr_matcher", "?"),
                    "warm": a.get("corr_stage_warm", "-"),
                    "seed": a.get("seed", "?"),
-                   "corrector_query": j.get("corrector_query", "unrecorded")}
+                   "corrector_query": j.get("corrector_query", "unrecorded"),
+                   # >0: tau fitted on train-side frames (paper protocol);
+                   # 0 / absent: the legacy --temperature-split, i.e. on this
+                   # run's own test queries (in-sample for the stored tau row)
+                   "tcf": int(a.get("temp_calib_frames", 0) or 0),
+                   "dslam_gt": "sfm_pose_dir" in a and not a.get("sfm_pose_dir")}
         for r in j["records"]:
             row = {"scene": s, "key": (r["seq"], int(r["frame_id"])),
                    "t_err": 100.0 * float(r["t_err"]),
                    "sigma_t": float(r["sigma_t"]),
                    "d2": float(r["d2"]), "logdet": float(r["logdet"]),
-                   "inliers": float(r.get("inliers", 0)),
-                   "max_inliers": float(r.get("max_inliers", r.get("inliers", 0))),
+                   # NaN when absent (older schema): the baseline is then
+                   # reported as not evaluated instead of a constant ranking
+                   "inliers": float(r["inliers"]) if "inliers" in r else float("nan"),
+                   "max_inliers": (float(r["max_inliers"]) if "max_inliers" in r
+                                   else float("nan")),
                    "tau_train": meta[s]["tau"], "T": None, "T_gt": None,
                    "Sigma": None, "e": None}
             if r.get("T") is not None and r.get("Sigma") is not None \
@@ -172,6 +190,16 @@ def eaurc_o(err, order, thr):
     loss = (err > thr).astype(float) if thr is not None else err
     conf_first = order[::-1]                       # most confident first
     return _aurc(loss[conf_first]) - _aurc(np.sort(loss))
+
+
+def neaurc_o(err, order, thr):
+    """E-AURC divided by the E-AURC of a random order on the SAME errors
+    (E[AURC | random] = mean loss exactly): 0 = oracle, ~1 = random.  Unlike
+    raw E-AURC it is comparable across methods with different failure rates;
+    NaN when the loss has no contrast (no query, or every query, above thr)."""
+    loss = (err > thr).astype(float)
+    ex_rand = loss.mean() - _aurc(np.sort(loss))
+    return eaurc_o(err, order, thr) / ex_rand if ex_rand > 0 else float("nan")
 
 
 def _tie_avg(fn, unc, err, rng, reps=TIE_REPS):
@@ -321,15 +349,18 @@ def summarize_cal(cov, nll):
     return out
 
 
-def loso_models(scenes_of, d2, logdet, E, Sig, tau_train, rng, mc, with_mix):
-    """Raw / train-side tau / LOSO tau / LOSO conformal / LOSO mixture."""
-    n = len(d2)
+def loso_models(scenes_of, d2, logdet, E, Sig, tau_train, rng, mc, with_mix,
+                train_label="train-side tau"):
+    """Raw / stored tau / LOSO tau / LOSO conformal / LOSO mixture.  Rows a
+    LOSO scheme cannot fit (a single scene: nothing to leave out) stay NaN, so
+    their coverage reads NaN rather than a fabricated 0 %."""
+    n, L = len(d2), len(ALPHAS)
     res = {"raw": gauss_model(d2, logdet, np.ones(n))}
     if tau_train is not None:
-        res["train-side tau"] = gauss_model(d2, logdet, tau_train)
-    cov_t, nll_t = np.zeros((n, len(ALPHAS)), bool), np.full(n, np.nan)
-    cov_c = np.zeros((n, len(ALPHAS)), bool)
-    cov_m, nll_m = np.zeros((n, len(ALPHAS)), bool), np.full(n, np.nan)
+        res[train_label] = gauss_model(d2, logdet, tau_train)
+    cov_t, nll_t = np.full((n, L), np.nan), np.full(n, np.nan)
+    cov_c = np.full((n, L), np.nan)
+    cov_m, nll_m = np.full((n, L), np.nan), np.full(n, np.nan)
     taus, mix_params = {}, {}
     for s in np.unique(scenes_of):
         te, tr = scenes_of == s, scenes_of != s
@@ -354,13 +385,21 @@ def loso_models(scenes_of, d2, logdet, E, Sig, tau_train, rng, mc, with_mix):
 def boot_diff(a, b, groups, B, rng):
     """CI of mean(a - b), paired, scene-stratified."""
     d = a - b
+    if not np.isfinite(d).any():            # e.g. LOSO with a single scene
+        return float("nan"), float("nan"), float("nan")
     vals = [np.nanmean(d[_strat_idx(groups, rng)]) for _ in range(B)]
-    return float(np.mean(d)), float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))
+    return (float(np.nanmean(d)), float(np.nanpercentile(vals, 2.5)),
+            float(np.nanpercentile(vals, 97.5)))
 
 
 # --------------------------------------------------------------------------
 # report
 # --------------------------------------------------------------------------
+INLIER_BASES = ("-inliers (dominant hyp.)", "-max_inliers (best hyp.)")
+NLL_EQ = math.log(1.1)      # "within 10 %" on NLL: likelihood ratio <= 1.1 per query
+SIG = "sigma_t (ours)"
+
+
 def _fmt_rank(tag, m):
     return (f"  {tag:<34} AUSE {m['ause']:.3f}  E-AURC 1/2/5cm "
             f"{m['eaurc_1cm']:.4f}/{m['eaurc_2cm']:.4f}/{m['eaurc_5cm']:.4f}  "
@@ -369,8 +408,12 @@ def _fmt_rank(tag, m):
 
 
 def _fmt_cal(tag, m):
-    return (f"  {tag:<22} cov {m['cov68.3']:5.1f}/{m['cov95.4']:5.1f}/{m['cov99.7']:5.1f}"
+    return (f"  {tag:<30} cov {m['cov68.3']:5.1f}/{m['cov95.4']:5.1f}/{m['cov99.7']:5.1f}"
             f"  ECE {m['ece']:.3f}  NLL mean {m['nll_mean']:9.2f}  median {m['nll_median']:8.2f}")
+
+
+def _neaurc2(unc, err, rng):
+    return _tie_avg(lambda e, o: neaurc_o(e, o, 2.0), unc, err, rng)
 
 
 def analyze(run, ace, args):
@@ -386,83 +429,125 @@ def analyze(run, ace, args):
             flag += "  <-- render NOT 640x480"
         if m["matcher"] == "stage" and m["warm"] == "mast3r" and m["corrector_query"] != "rgb":
             flag += "  <-- MASt3R warm-up fed luma (pre-fix run)"
+        if m["tcf"] <= 0:
+            flag += "  <-- tau fitted on this run's own test queries (legacy split)"
+        if m["dslam_gt"]:
+            flag += "  <-- DSLAM ground truth (no --sfm-pose-dir)"
         print(f"  {s:<11} n={m['n']:3d}  render {m['wh']:<8} matcher {m['matcher']}"
               f"/{m['warm']}  seed {m['seed']}  tau_train {m['tau']:.2f}{flag}")
+    missing_sc = [s for s in args.scenes if s not in meta]
+    if missing_sc:
+        print(f"  WARNING: no run file for {missing_sc}")
+    legacy = any(m["tcf"] <= 0 for m in meta.values())
+    tau_label = "stored tau (IN-SAMPLE)" if legacy else "train-side tau"
     have_pose = all(r["e"] is not None for r in rows)
     print(f"  stored-vs-recomputed d2: max rel. deviation {max_dev:.2e}"
           + ("" if have_pose else "  (records without T/Sigma/T_gt: mixture and "
-             "ACE-under-ours skipped)"))
+             "ACE comparisons skipped)"))
 
     sc = np.array([r["scene"] for r in rows])
     err = np.array([r["t_err"] for r in rows])
-    sig = np.array([r["sigma_t"] for r in rows])
+    tau_tr = np.array([r["tau_train"] for r in rows])
+    sig_raw = np.array([r["sigma_t"] for r in rows])
+    # The paper ranks by the TEMPERED sigma_t (pooled_calib.py,
+    # uncertainty_benefit.py): a per-scene tau leaves each scene's order
+    # unchanged but sets the pooled order across scenes.
+    sig = sig_raw * np.sqrt(tau_tr)
     inl = np.array([r["inliers"] for r in rows])
     mxi = np.array([r["max_inliers"] for r in rows])
     d2 = np.array([r["d2"] for r in rows])
     ld = np.array([r["logdet"] for r in rows])
-    tau_tr = np.array([r["tau_train"] for r in rows])
     print(f"  median {np.median(err):.2f} cm   beyond 5 cm: {(err > 5).sum()}/{len(err)}")
 
     # ---- (A) same poses -------------------------------------------------
     print("\n(A) RANKING OUR OWN ERRORS (identical poses; lower AUSE/E-AURC is better)")
-    sigs = {"sigma_t (ours)": sig, "-inliers (dominant hyp.)": -inl,
-            "-max_inliers (best hyp.)": -mxi}
-    paired = None
-    if ace:
+    sigs = {SIG: sig, "sigma_t raw (untempered)": sig_raw}
+    for name, v in zip(INLIER_BASES, (inl, mxi)):
+        if not np.isfinite(v).all():
+            print(f"  {name}: missing in some run records -- baseline NOT evaluated")
+        elif len(np.unique(v)) == 1:
+            print(f"  {name}: constant over the run -- baseline NOT evaluated")
+        else:
+            sigs[name] = -v
+    bases = [b for b in INLIER_BASES if b in sigs]
+    paired, dis = None, None
+    if ace and have_pose:
         k = [(r["scene"],) + r["key"] for r in rows]
         has = np.array([kk in ace for kk in k])
-        if has.any() and have_pose:
+        if has.any():
             dis = np.full(len(rows), np.nan)
             for i in np.where(has)[0]:
                 dis[i] = 100.0 * translation_error(rows[i]["T"], ace[k[i]]["T"])
             paired = has
-            sigs_ext = {"disagreement w/ ACE (external)": dis}
     A = {t: rank_metrics(u, err, rng) for t, u in sigs.items()}
     for t, m in A.items():
         print(_fmt_rank(t, m))
     if paired is not None:
-        for t, u in sigs_ext.items():
-            mm = rank_metrics(u[paired], err[paired], rng)
-            A[t] = mm
-            print(_fmt_rank(t + f" n={paired.sum()}", mm))
+        t = "disagreement w/ ACE (external)"
+        A[t] = rank_metrics(dis[paired], err[paired], rng)
+        print(_fmt_rank(t + f" n={paired.sum()}", A[t]))
     print(f"  {'random order (expected)':<34} AUSE "
           f"{np.mean([ause_o(err, rng.permutation(len(err))) for _ in range(64)]):.3f}")
     rel = {}
-    for base in ("-inliers (dominant hyp.)", "-max_inliers (best hyp.)"):
+    for base in bases:
         for met in ("ause", "eaurc_2cm"):
-            point = (A[base][met] - A["sigma_t (ours)"][met]) / A[base][met]
+            b, o = A[base][met], A[SIG][met]
+            point = (b - o) / b if b > 0 else float("nan")   # undefined: nothing to rank
             lo, hi = boot_rel(sig, sigs[base], err, err, sc, met, args.boot, rng)
             rel[(base, met)] = (point, lo, hi)
             print(f"  sigma_t vs {base:<26} {met:<10} rel. improvement "
                   f"{100 * point:+6.1f}%  [95% CI {100 * lo:+6.1f}, {100 * hi:+6.1f}]")
     rep["A"] = {"metrics": A, "rel": {f"{b}|{m}": v for (b, m), v in rel.items()}}
 
-    print("\n  per scene: AUSE sigma_t / -inliers / -max_inliers   E-AURC(2cm) same order")
+    cols = [SIG] + bases
+    print(f"\n  per scene: AUSE {' / '.join(cols)}   E-AURC(2cm) same order")
     for s in np.unique(sc):
         m = sc == s
-        a = [_tie_avg(ause_o, u[m], err[m], rng) for u in (sig, -inl, -mxi)]
-        b = [_tie_avg(lambda e, o: eaurc_o(e, o, 2.0), u[m], err[m], rng) for u in (sig, -inl, -mxi)]
-        print(f"  {s:<11} {a[0]:.3f} / {a[1]:.3f} / {a[2]:.3f}     "
-              f"{b[0]:.4f} / {b[1]:.4f} / {b[2]:.4f}")
+        a = [_tie_avg(ause_o, sigs[c][m], err[m], rng) for c in cols]
+        b = [_tie_avg(lambda e, o: eaurc_o(e, o, 2.0), sigs[c][m], err[m], rng) for c in cols]
+        print(f"  {s:<11} {' / '.join(f'{x:.3f}' for x in a)}     "
+              f"{' / '.join(f'{x:.4f}' for x in b)}")
 
-    # ---- (B) ACE's poses ------------------------------------------------
-    B = None
+    # ---- ACE pairing: completeness and its PnP covariance -----------------
+    nll_cmp = None
+    incomplete = []
+    have_cov = False
     if paired is not None:
         idx = np.where(paired)[0]
         k = [(rows[i]["scene"],) + rows[i]["key"] for i in idx]
+        sci = sc[idx]
+        paired_sc = set(sci.tolist())
+        incomplete = sorted(set(args.scenes) - paired_sc) + sorted(
+            s for s in paired_sc if (sci == s).sum() < 0.9 * meta[s]["n"])
+        if incomplete:
+            print(f"\n  WARNING: ACE pairing incomplete (missing, or < 90% of frames "
+                  f"paired): {incomplete} -- the external test will NOT be scored")
         aerr = np.array([ace[kk]["t_err"] for kk in k])
         ainl = np.array([ace[kk]["inliers"] for kk in k])
+        have_cov = all(ace[kk]["Sigma"] is not None for kk in k)
+        if have_cov:
+            Ea = np.stack([relative_tangent(ace[kk]["T"], rows[i]["T_gt"])
+                           for i, kk in zip(idx, k)])
+            Sa = np.stack([ace[kk]["Sigma"] for kk in k])
+            d2a = np.einsum("ni,ni->n", Ea, np.linalg.solve(Sa, Ea[..., None])[..., 0])
+            lda = np.linalg.slogdet(Sa)[1]
+            # ACE's sigma_t tempered by OUR rule, fitted leave-one-scene-out on
+            # ACE's own d2 (it has no train-side calibration of its own)
+            tau_a = np.array([tau_median(d2a[sci != s]) if (sci != s).any() else 1.0
+                              for s in sci])
+            asig = np.sqrt(np.trace(Sa[:, :3, :3], axis1=1, axis2=2) * tau_a)
+
+    # ---- (B) ACE's poses ------------------------------------------------
+    if paired is not None:
         print(f"\n(B) RANKING ACE'S OWN ERRORS (n={len(idx)}; ACE beyond 5 cm: "
               f"{(aerr > 5).sum()}, ours on these frames: {(err[idx] > 5).sum()})")
         bs = {"ACE -inliers": -ainl, "disagreement w/ ours": dis[idx]}
-        d2_under = np.array([mahalanobis_sq(relative_tangent(rows[i]["T"], ace[kk]["T"]),
-                                            rows[i]["tau_train"] * rows[i]["Sigma"])
-                             for i, kk in zip(idx, k)])
-        bs["d2 of T_ACE under our posterior"] = d2_under
-        have_cov = all(ace[kk]["Sigma"] is not None for kk in k)
+        bs["d2 of T_ACE under our posterior"] = np.array([
+            mahalanobis_sq(relative_tangent(rows[i]["T"], ace[kk]["T"]),
+                           rows[i]["tau_train"] * rows[i]["Sigma"])
+            for i, kk in zip(idx, k)])
         if have_cov:
-            bs["ACE PnP sigma_t"] = np.array([math.sqrt(np.trace(ace[kk]["Sigma"][:3, :3]))
-                                              for kk in k])
+            bs["ACE PnP sigma_t (LOSO tau)"] = asig
         else:
             print("  (no Sigma_pnp in the ACE records: re-run run_ace_baseline.py "
                   "-- the PnP-covariance baseline is NOT evaluated)")
@@ -475,11 +560,14 @@ def analyze(run, ace, args):
         rep["B"] = B
 
     # ---- (C) calibration ------------------------------------------------
-    print("\n(C) CALIBRATION (condensed Gaussian; LOSO = fitted on the 6 other scenes)")
+    print("\n(C) CALIBRATION (condensed Gaussian; LOSO = fitted on the other scenes' queries)")
+    if len(np.unique(sc)) < 2:
+        print("  WARNING: one scene only -- leave-one-scene-out schemes are undefined (NaN)")
     E = np.stack([r["e"] for r in rows]) if have_pose else None
     Sig = np.stack([r["Sigma"] for r in rows]) if have_pose else None
     ours, taus, mixp = loso_models(sc, d2, ld, E, Sig, tau_tr, rng, args.mc,
-                                   with_mix=have_pose and not args.no_mixture)
+                                   with_mix=have_pose and not args.no_mixture,
+                                   train_label=tau_label)
     C = {t: summarize_cal(*v) for t, v in ours.items()}
     for t, m in C.items():
         print(_fmt_cal("ours " + t, m))
@@ -490,18 +578,12 @@ def analyze(run, ace, args):
     rep["C"] = {"ours": C, "loso_tau": taus,
                 "loso_mixture": {s: list(p) for s, p in mixp.items()}}
 
-    nll_cmp = None
     if paired is not None and have_cov:
-        idx = np.where(paired)[0]
-        k = [(rows[i]["scene"],) + rows[i]["key"] for i in idx]
-        Ea = np.stack([relative_tangent(ace[kk]["T"], rows[i]["T_gt"]) for i, kk in zip(idx, k)])
-        Sa = np.stack([ace[kk]["Sigma"] for kk in k])
-        d2a = np.einsum("ni,ni->n", Ea, np.linalg.solve(Sa, Ea[..., None])[..., 0])
-        lda = np.linalg.slogdet(Sa)[1]
-        acem, ataus, _ = loso_models(sc[idx], d2a, lda, Ea, Sa, None, rng, args.mc,
+        acem, ataus, _ = loso_models(sci, d2a, lda, Ea, Sa, None, rng, args.mc,
                                      with_mix=not args.no_mixture)
-        oursp, _, _ = loso_models(sc[idx], d2[idx], ld[idx], E[idx], Sig[idx],
-                                  tau_tr[idx], rng, args.mc, with_mix=not args.no_mixture)
+        oursp, _, _ = loso_models(sci, d2[idx], ld[idx], E[idx], Sig[idx], tau_tr[idx],
+                                  rng, args.mc, with_mix=not args.no_mixture,
+                                  train_label=tau_label)
         print(f"  --- paired with ACE (n={len(idx)}) ---")
         CA = {}
         for t in acem:
@@ -509,26 +591,34 @@ def analyze(run, ace, args):
             print(_fmt_cal("ACE PnP " + t, CA[t]))
             print(_fmt_cal("ours    " + t, summarize_cal(*oursp[t])))
         print("  ACE LOSO tau per scene: " + "  ".join(f"{s} {t:.1f}" for s, t in ataus.items()))
-        nll_cmp = {}
+        nll_cmp = {"incomplete": incomplete}
         for t in ("LOSO tau", "LOSO mixture"):
             if t in acem:
-                mean, lo, hi = boot_diff(acem[t][1], oursp[t][1], sc[idx], args.boot, rng)
+                mean, lo, hi = boot_diff(acem[t][1], oursp[t][1], sci, args.boot, rng)
                 nll_cmp[t] = (mean, lo, hi)
                 print(f"  NLL_ACE - NLL_ours [{t}]: {mean:+.2f} nats/query "
                       f"[95% CI {lo:+.2f}, {hi:+.2f}]  (positive = ours better)")
-        # per-scene E-AURC(2 cm), each method on its own errors
-        aerr = np.array([ace[kk]["t_err"] for kk in k])
-        asig = np.array([math.sqrt(np.trace(ace[kk]["Sigma"][:3, :3])) for kk in k])
-        wins = 0
-        for s in np.unique(sc[idx]):
-            m = sc[idx] == s
-            eo = _tie_avg(lambda e, o: eaurc_o(e, o, 2.0), sig[idx][m], err[idx][m], rng)
-            ea = _tie_avg(lambda e, o: eaurc_o(e, o, 2.0), asig[m], aerr[m], rng)
+        # E-AURC(2 cm) normalised by each method's random-order E-AURC on its
+        # OWN errors, so different failure rates do not decide the contest;
+        # scenes where either method has no 2 cm contrast are skipped.
+        wins, n_eval, skipped = 0, 0, []
+        for s in np.unique(sci):
+            m = sci == s
+            eo, ea = _neaurc2(sig[idx][m], err[idx][m], rng), _neaurc2(asig[m], aerr[m], rng)
+            if not (np.isfinite(eo) and np.isfinite(ea)):
+                skipped.append(str(s))
+                continue
+            n_eval += 1
             wins += eo < ea
-        nll_cmp["eaurc2_scene_wins"] = int(wins)
-        nll_cmp["n_scenes"] = int(len(np.unique(sc[idx])))
-        print(f"  E-AURC(2cm) per scene, sigma_t on ours < ACE PnP sigma_t on ACE's: "
-              f"{wins}/{nll_cmp['n_scenes']} scenes")
+        eo_p, ea_p = _neaurc2(sig[idx], err[idx], rng), _neaurc2(asig, aerr, rng)
+        nll_cmp.update(eaurc2_scene_wins=int(wins), n_scenes=int(n_eval),
+                       eaurc2_skipped=skipped,
+                       neaurc2_ours=eo_p, neaurc2_ace=ea_p,
+                       neaurc2_rel=((ea_p - eo_p) / ea_p if ea_p > 0 else float("nan")))
+        print(f"  normalised E-AURC(2cm) (0 = oracle, 1 = random), each on its own errors: "
+              f"ours {eo_p:.3f}, ACE PnP {ea_p:.3f}; per scene ours better on "
+              f"{wins}/{n_eval} evaluable scenes"
+              + (f" (no 2 cm contrast: {', '.join(skipped)})" if skipped else ""))
         rep["C"]["ace"] = CA
         rep["C"]["ace_loso_tau"] = ataus
         rep["C"]["ace_ours_paired"] = {t: summarize_cal(*v) for t, v in oursp.items()}
@@ -540,25 +630,57 @@ def analyze(run, ace, args):
 
 
 def verdict(rel, C, nll_cmp, Cfull):
-    """The success / kill rules of docs/accuracy_strategy_2026-10.md, S0-A."""
+    """The success / kill rules of docs/accuracy_strategy_2026-10.md, S0-A.
+
+    1. sigma_t vs the inlier count on OUR poses: PASS if >= 20 % better than
+       both inlier signals on pooled AUSE and E-AURC(2cm); KILL if some single
+       inlier signal comes within 10 % on both metrics.
+    2. vs ACE + PnP covariance with the same LOSO repair: PASS if our NLL is
+       significantly lower (CI of NLL_ACE - NLL_ours above 0) and our
+       normalised E-AURC(2cm) wins >= 5/7 of the evaluable scenes (at least 4
+       of them); KILL only if ACE is EQUIVALENT or better -- the CI upper bound
+       stays below ln 1.1 nats/query, our pooled normalised E-AURC(2cm) is less
+       than 10 % better, and ACE's 95.4 % coverage is closer to nominal.
+       Not scored when ACE does not cover every scene.
+    3. the best LOSO scheme puts pooled 95.4 % coverage within 5 points.
+    PASS needs 1-3; KILL needs a kill rule; anything else is INCONCLUSIVE
+    (INCOMPLETE when 1 or 2 could not be evaluated).
+    """
     print("\n(V) STAGE-0 GATE")
-    best = {met: min(rel[(b, met)][0] for b in ("-inliers (dominant hyp.)",
-                                                 "-max_inliers (best hyp.)"))
-            for met in ("ause", "eaurc_2cm")}
-    c1 = best["ause"] >= 0.20 and best["eaurc_2cm"] >= 0.20
-    k1 = best["ause"] < 0.10 and best["eaurc_2cm"] < 0.10
-    print(f"  1. sigma_t vs inlier count on OUR poses (worst of the two inlier signals): "
-          f"AUSE {100 * best['ause']:+.1f}%, E-AURC(2cm) {100 * best['eaurc_2cm']:+.1f}%  "
-          f"-> {'PASS (>=20% on both)' if c1 else 'KILL (<10% on both)' if k1 else 'not met'}")
+    bases = [b for b in INLIER_BASES if (b, "ause") in rel]
+    if not bases:
+        print("  1. sigma_t vs inlier count: NOT EVALUATED (records lack usable inlier counts)")
+        c1 = k1 = False
+        g1 = False
+    else:
+        g1 = True
+        vals = {met: [rel[(b, met)][0] for b in bases] for met in ("ause", "eaurc_2cm")}
+        best = {met: (float("nan") if any(math.isnan(x) for x in v) else min(v))
+                for met, v in vals.items()}
+        c1 = best["ause"] >= 0.20 and best["eaurc_2cm"] >= 0.20
+        k1_by = [b for b in bases
+                 if rel[(b, "ause")][0] < 0.10 and rel[(b, "eaurc_2cm")][0] < 0.10]
+        k1 = bool(k1_by)
+        print(f"  1. sigma_t vs inlier count on OUR poses (worst case over the inlier signals): "
+              f"AUSE {100 * best['ause']:+.1f}%, E-AURC(2cm) {100 * best['eaurc_2cm']:+.1f}%  -> "
+              + ("PASS (>=20% on both)" if c1 else
+                 f"KILL ({k1_by[0]} within 10% on both)" if k1 else "not met"))
     loso = [t for t in ("LOSO tau", "LOSO conformal", "LOSO mixture") if t in C]
-    gap = {t: abs(C[t]["cov95.4"] - 95.4) for t in loso}
-    tbest = min(gap, key=gap.get)
-    c3 = gap[tbest] <= 5.0
-    print(f"  3. best LOSO scheme '{tbest}': 95.4% coverage {C[tbest]['cov95.4']:.1f}%  "
-          f"-> {'PASS (within 5 points)' if c3 else 'not met'}")
-    if nll_cmp is None:
-        print("  2. ACE + PnP covariance + tau: NOT EVALUATED (needs --ace with Sigma_pnp)")
-        v = "INCOMPLETE" if not k1 else "KILL"
+    gap = {t: abs(C[t]["cov95.4"] - 95.4) for t in loso if np.isfinite(C[t]["cov95.4"])}
+    if not gap:
+        c3 = False
+        print("  3. LOSO calibration: NOT EVALUATED (needs >= 2 scenes)")
+    else:
+        tbest = min(gap, key=gap.get)
+        c3 = gap[tbest] <= 5.0
+        print(f"  3. best LOSO scheme '{tbest}': 95.4% coverage {C[tbest]['cov95.4']:.1f}%  "
+              f"-> {'PASS (within 5 points)' if c3 else 'not met'}")
+    g2 = nll_cmp is not None and not nll_cmp.get("incomplete")
+    if not g2:
+        why = ("needs --ace with Sigma_pnp and poses in the run records" if nll_cmp is None
+               else f"ACE incomplete for {nll_cmp['incomplete']}")
+        print(f"  2. ACE + PnP covariance: NOT EVALUATED ({why})")
+        c2 = k2 = False
     else:
         # The NLL test uses the defensive mixture when it was fitted: under a
         # single Gaussian the mean NLL is dominated by the gross failures, so
@@ -567,17 +689,29 @@ def verdict(rel, C, nll_cmp, Cfull):
         # LOSO repair, so the comparison stays like-for-like.
         tag = "LOSO mixture" if "LOSO mixture" in nll_cmp else "LOSO tau"
         mean, lo, hi = nll_cmp[tag]
-        need = math.ceil(5 * nll_cmp["n_scenes"] / 7)
-        c2 = lo > 0 and nll_cmp["eaurc2_scene_wins"] >= need
+        n_ev = nll_cmp["n_scenes"]
+        need = math.ceil(5 * n_ev / 7)
+        scene_ok = n_ev >= 4 and nll_cmp["eaurc2_scene_wins"] >= need
+        c2 = bool(np.isfinite(lo) and lo > 0 and scene_ok)
         ace_cov = Cfull.get("ace", {}).get(tag, {}).get("cov95.4", float("nan"))
         our_cov = Cfull.get("ace_ours_paired", {}).get(tag, {}).get("cov95.4", float("nan"))
-        k2 = (lo <= 0 and nll_cmp["eaurc2_scene_wins"] < need
-              and abs(ace_cov - 95.4) < abs(our_cov - 95.4))
-        print(f"  2. vs ACE PnP-cov, both with {tag}: NLL diff {mean:+.2f} [{lo:+.2f}, {hi:+.2f}], "
-              f"E-AURC(2cm) wins {nll_cmp['eaurc2_scene_wins']}/{nll_cmp['n_scenes']}, "
+        rel_e = nll_cmp.get("neaurc2_rel", float("nan"))
+        k2 = bool(np.isfinite(hi) and hi <= NLL_EQ
+                  and np.isfinite(rel_e) and rel_e < 0.10
+                  and abs(ace_cov - 95.4) < abs(our_cov - 95.4))
+        print(f"  2. vs ACE PnP-cov, both with {tag}: NLL_ACE - NLL_ours {mean:+.2f} "
+              f"[{lo:+.2f}, {hi:+.2f}] nats, normalised E-AURC(2cm) ours better by "
+              f"{100 * rel_e:+.1f}% pooled and on {nll_cmp['eaurc2_scene_wins']}/{n_ev} scenes, "
               f"95.4% coverage ACE {ace_cov:.1f} vs ours {our_cov:.1f}  -> "
-              f"{'PASS' if c2 else 'KILL' if k2 else 'not met'}")
-        v = ("PASS" if (c1 and c2 and c3) else "KILL" if (k1 or k2) else "INCONCLUSIVE")
+              f"{'PASS' if c2 else 'KILL (ACE equivalent or better)' if k2 else 'not met'}")
+    if k1 or k2:
+        v = "KILL"
+    elif c1 and c2 and c3:
+        v = "PASS"
+    elif not (g1 and g2):
+        v = "INCOMPLETE"
+    else:
+        v = "INCONCLUSIVE"
     print(f"  VERDICT: {v}")
     return v
 

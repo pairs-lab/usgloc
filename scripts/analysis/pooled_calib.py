@@ -11,12 +11,13 @@ import numpy as np
 from scipy.stats import chi2
 
 SC = ["chess", "fire", "heads", "office", "pumpkin", "redkitchen", "stairs"]
+_trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")   # trapz is gone in numpy >= 2.4
 
 
 def ause(sig, t):
     fr = np.linspace(0, 0.9, 91); n = len(t); op = np.argsort(-sig); oo = np.argsort(-t)
     cp = np.array([t[op[int(f * n):]].mean() for f in fr]); co = np.array([t[oo[int(f * n):]].mean() for f in fr])
-    return float(np.trapz(cp / cp[0] - co / co[0], fr))
+    return float(_trapz(cp / cp[0] - co / co[0], fr))
 
 
 def main():
