@@ -779,7 +779,8 @@ def main():
         )
         _mname = {"mast3r": "MASt3R", "roma": f"RoMa {args.corr_roma_model}",
                   "feat": "descriptor field", "pooled": "LoFTR + field pooled",
-                  "stage": f"LoFTR x{args.corr_feat_stage} then field"}.get(
+                  "stage": (f"{ {'mast3r': 'MASt3R', 'loftr': 'LoFTR'}.get(args.corr_stage_warm, 'LoFTR') }"
+                            f" x{args.corr_feat_stage} then field")}.get(
             args.corr_matcher, "LoFTR indoor")
         print(f"      matching correction ON ({_mname}, 640x480, "
               f"vacuity gate {'off' if args.no_corr_gate else 'on'}, "
