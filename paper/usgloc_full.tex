@@ -1404,6 +1404,66 @@ it. We also note that the round budget matters little (Chess is identical at
 a CUDA launch-timeout on our hardware at 12 rounds, which is why the reported
 configuration uses 8.
 
+\textbf{The cascade also lowers the map's geometric floor.} The floor is the
+error the correction reaches when it is started \emph{from the ground-truth
+pose}, so it removes retrieval and selection and measures what the map and the
+matcher jointly permit. Replacing LoFTR with the MASt3R-led cascade lowers it on
+every one of the seven scenes (Table~\ref{tab:floorcascade}), by 39\% in the
+mean and by 62\% on Stairs. Two caveats belong with this table. It is measured
+on the TRAIN split, like the floor column of Table~\ref{tab:snaprate} it is
+compared against, so it is not comparable with the test-frame floors of
+Table~\ref{tab:headroom}; and it uses 40 frames per scene against that table's
+20. The floor is a diagnostic ceiling, not a localization result: it may not be
+compared with any baseline row, all of which localize from retrieval on the test
+split.
+
+The practical reading is that the map and the matcher are not what stands
+between us and the sub-centimetre group. The mean floor of 0.43\,cm sits below
+the best published prior-free average, while our own test-split result is
+0.90\,cm. What separates the two is initialization and hypothesis selection, and
+Table~\ref{tab:snaprate} localizes the loss the same way: the scenes we lose are
+the scenes with the lowest snap rates, not the lowest floors.
+
+\begin{table}[t]
+\caption{Correction floor by leading matcher, TRAIN split, \texttt{\_r1} maps,
+correction started from the ground-truth pose. Only the matcher differs. LoFTR
+is the floor column of Table~\ref{tab:snaprate} (20 frames per scene); the
+cascade is MASt3R for the leading rounds then the descriptor field, at the
+reported \texttt{lfst=3}, \texttt{rounds=8} (40 frames per scene). Lower is
+better. These are diagnostic ceilings, not localization results.}
+\label{tab:floorcascade}
+\centering\footnotesize
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Scene & LoFTR & MASt3R$\to$field & change \\
+\midrule
+chess      & 0.39 & \textbf{0.35} & $-$11\% \\
+fire       & 0.37 & \textbf{0.28} & $-$23\% \\
+heads      & 0.36 & \textbf{0.18} & $-$51\% \\
+office     & 1.01 & \textbf{0.63} & $-$38\% \\
+pumpkin    & 0.95 & \textbf{0.64} & $-$33\% \\
+redkitchen & 0.66 & \textbf{0.50} & $-$24\% \\
+stairs     & 1.24 & \textbf{0.47} & $-$62\% \\
+\midrule
+mean       & 0.71 & \textbf{0.43} & $-$39\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{From the ground-truth pose the leading matcher only hurts.} On the test
+frames of Chess and Office the field alone floors at 0.169 and 0.320\,cm, while
+a LoFTR-led cascade at the same round budget gives 0.473 and 1.147\,cm, and
+LoFTR alone 0.527 and 1.095\,cm. This is consistent with the basin argument
+rather than a contradiction of it: a pose that starts at the ground truth is
+already inside the field's basin, so the warm rounds add error instead of
+supplying reach. The leading matcher earns its place only when the start pose is
+outside that basin, which is the case that retrieval actually delivers. It also
+means the floor of the reported configuration is not the lowest floor available,
+and a scheme that detected it was already converged and skipped the warm rounds
+would be strictly better. We did not pursue it: the detector would have to work
+without the ground truth it is being compared against.
+
 \textbf{Where the remaining error lives, and why we stop here.} Office reports
 1.08\,cm against a 0.32\,cm floor measured on the same TEST frames from the
 ground-truth pose, so 0.76\,cm is lost between a retrieval anchor and that
