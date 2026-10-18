@@ -6,10 +6,22 @@ the same Brachmann SfM pseudo-GT we evaluate against). The dsacstar C++ RANSAC
 is replaced by cv2.solvePnPRansac on the same 2D-3D correspondences, which
 avoids building the extension; the substitution is documented in the paper.
 
-    python3 run_ace_baseline.py chess [n_queries]
+    python3 run_ace_baseline.py chess [n_queries] [out_dir]
 
-Writes results/ace_baseline/7scenes_<scene>.json with one record per query,
-keyed by (seq, frame_id) so it joins directly against our runs.
+Writes <out_dir>/7scenes_<scene>.json (default results/ace_baseline) with one
+record per query, keyed by (seq, frame_id) so it joins directly against our
+runs.  Every record also carries ``Sigma_pnp``: the Gauss-Newton covariance
+s^2 (J^T J)^-1 of ACE's final pose over its scene-coordinate inliers
+(reprojection < 10 px, the dsacstar inlier threshold), in our tangent
+convention (left perturbation of T_cw, translation first).  It is the
+"what any PnP pipeline could report" baseline of
+scripts/analysis/uncertainty_fair.py.  Write it to a NEW directory so the
+paper's ACE rows stay untouched, e.g.
+
+    for s in chess fire heads office pumpkin redkitchen stairs; do
+      USE_DSACSTAR=1 python3 scripts/analysis/run_ace_baseline.py $s 100 \
+          results/ace_dsacstar_100_cov
+    done
 """
 import json
 import os
@@ -27,11 +39,13 @@ sys.path.insert(0, "/home/thanhnc/gauss_ws/src/usgloc")
 os.chdir("/home/thanhnc/gauss_ws/src/usgloc")
 
 from ace_network import Regressor                      # noqa: E402
+from pose_unc_np import pnp_covariance                 # noqa: E402  (same dir)
 from usgloc.datasets import SevenScenes                # noqa: E402
 
 PGT = "data/visloc_pseudo_gt_limitations/pgt/sfm/7scenes"
 MODELS = ACE.parent / "ace_models" / "7Scenes_pgt"
 IMAGE_HEIGHT = 480          # ACE's test-time resolution
+INLIER_PX = 10.0            # dsacstar's inlier threshold (forward_rgb below)
 import os as _os
 USE_DSACSTAR = _os.environ.get("USE_DSACSTAR", "1") == "1"
 
@@ -70,7 +84,19 @@ def solve_pose_dsacstar(net, img_b1hw, focal, ppx, ppy, sub=8):
         100, 100, sub)
     # dsacstar returns camera-TO-world; our convention is camera-from-world
     T = torch.linalg.inv(out_pose.double()).numpy()
-    return T, int(inl)
+    return T, int(inl), sc[0]
+
+
+def scene_coord_correspondences(sc, sub=8):
+    """(3, h8, w8) scene coordinates -> world points (n, 3) and the pixel
+    centres they belong to (n, 2), with dsacstar's sampling convention
+    (cell centre x * sub + sub / 2)."""
+    _, h8, w8 = sc.shape
+    ys, xs = torch.meshgrid(torch.arange(h8), torch.arange(w8), indexing="ij")
+    px = (xs.flatten().numpy() * sub + sub / 2).astype(np.float64)
+    py = (ys.flatten().numpy() * sub + sub / 2).astype(np.float64)
+    obj = sc.reshape(3, -1).T.numpy().astype(np.float64)
+    return obj, np.stack([px, py], axis=1)
 
 
 @torch.no_grad()
@@ -79,31 +105,26 @@ def solve_pose(net, img_b1hw, K, sub=8):
     with torch.autocast("cuda", enabled=True):
         sc = net(img_b1hw)                                     # (1,3,h/8,w/8)
     sc = sc.float().cpu()[0]                                   # (3,h8,w8)
-    _, h8, w8 = sc.shape
-    ys, xs = torch.meshgrid(torch.arange(h8), torch.arange(w8), indexing="ij")
-    # pixel centre of each subsampled cell, in the resized image frame
-    px = (xs.flatten().numpy() * sub + sub / 2).astype(np.float64)
-    py = (ys.flatten().numpy() * sub + sub / 2).astype(np.float64)
-    obj = sc.reshape(3, -1).T.numpy().astype(np.float64)
-    img = np.stack([px, py], axis=1)
+    obj, img = scene_coord_correspondences(sc, sub)
     ok, rvec, tvec, inl = cv2.solvePnPRansac(
         obj, img, K, None, reprojectionError=10.0,
         iterationsCount=1000, confidence=0.9999,
         flags=cv2.SOLVEPNP_ITERATIVE)
     if not ok or inl is None or len(inl) < 6:
-        return None, 0
+        return None, 0, sc
     inl = inl.reshape(-1)
     rvec, tvec = cv2.solvePnPRefineLM(obj[inl], img[inl], K, None, rvec, tvec)
     R, _ = cv2.Rodrigues(rvec)
     T = np.eye(4)
     T[:3, :3] = R
     T[:3, 3] = tvec.reshape(3)
-    return T, int(len(inl))
+    return T, int(len(inl)), sc
 
 
 def main():
     scene = sys.argv[1]
     n_q = int(sys.argv[2]) if len(sys.argv) > 2 else 100
+    out = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("results/ace_baseline")
     dev = "cuda"
     ds = SevenScenes("data/7scenes_source", scene, split="test", sfm_pose_dir=PGT)
     net = load_net(scene, dev)
@@ -122,9 +143,9 @@ def main():
                       [0, cam.fy * scale, cam.cy * scale],
                       [0, 0, 1]], dtype=np.float64)
         if USE_DSACSTAR:
-            T, n_inl = solve_pose_dsacstar(net, img_b, K[0, 0], K[0, 2], K[1, 2])
+            T, n_inl, sc = solve_pose_dsacstar(net, img_b, K[0, 0], K[0, 2], K[1, 2])
         else:
-            T, n_inl = solve_pose(net, img_b, K)
+            T, n_inl, sc = solve_pose(net, img_b, K)
         T_gt = fr.pose_cw.double().numpy()
         if T is None:
             t_err, r_err = float("nan"), float("nan")
@@ -138,11 +159,16 @@ def main():
                      "failed": T is None})
         if T is not None:
             recs[-1]["T"] = T.tolist()
+            obj, uv = scene_coord_correspondences(sc)
+            pc = pnp_covariance(T, obj, uv, K, inlier_px=INLIER_PX)
+            recs[-1]["Sigma_pnp"] = (None if pc["Sigma"] is None
+                                     else pc["Sigma"].tolist())
+            recs[-1]["pnp_inliers"] = pc["n_inliers"]
+            recs[-1]["pnp_rms_px"] = pc["rms_px"]
 
     good = [r for r in recs if not r["failed"]]
     t = np.array([100 * r["t_err"] for r in good])
     rr = np.array([r["r_err"] for r in good])
-    out = Path("results/ace_baseline")
     out.mkdir(parents=True, exist_ok=True)
     json.dump({"scene": scene, "n": len(recs), "records": recs},
               open(out / f"7scenes_{scene}.json", "w"))

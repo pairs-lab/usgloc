@@ -943,6 +943,15 @@ def main():
         print(f"      PRIOR-REFINEMENT mode: {len(prior_poses)} prior poses "
               f"from {args.prior_json} (retrieval bypassed)")
 
+    # MASt3R / RoMa consume the RGB frame, and so does the MASt3R warm-up of
+    # the stage cascade; every other consumer (LoFTR, the descriptor field,
+    # landmarks, vsearch) converts RGB with the bit-identical luma formula, so
+    # passing RGB is a no-op for them.  Recorded in the output JSON because
+    # runs before this fix fed the cascade's MASt3R warm-up a luma frame.
+    corr_query_rgb = corrector is not None and (
+        args.corr_matcher in ("mast3r", "roma")
+        or (args.corr_matcher == "stage" and args.corr_stage_warm == "mast3r"))
+
     def localize_frames(ds_obj, idx, tag):
         recs = []
         for i in idx:
@@ -1011,8 +1020,8 @@ def main():
                 gf = resize_image(img_full, 640, 480).to(device)
                 gray_full = (0.299 * gf[..., 0] + 0.587 * gf[..., 1]
                              + 0.114 * gf[..., 2]).clamp(0, 1)
-                if corrector is not None and args.corr_matcher in ("mast3r", "roma"):
-                    gray_full = gf          # MASt3R / RoMa consume the RGB frame
+                if corr_query_rgb:
+                    gray_full = gf          # see corr_query_rgb above
             prior_T = None
             if prior_poses is not None:
                 pk = (rec_ds.seq, rec_ds.frame_id)
@@ -1168,7 +1177,9 @@ def main():
     out_path = out_dir / f"{args.dataset}_{args.scene.replace('/', '_')}.json"
     with open(out_path, "w") as f:
         json.dump(
-            {"args": vars(args), "tau": tau, "metrics": results, "records": records},
+            {"args": vars(args), "tau": tau, "metrics": results, "records": records,
+             "corrector_query": ("rgb" if corr_query_rgb else "luma")
+             if corrector is not None else "none"},
             f, indent=2, default=str,
         )
     print(f"saved {out_path}")
