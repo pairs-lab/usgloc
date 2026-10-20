@@ -477,7 +477,8 @@ def parse_args():
                          "that same weight (soft u_max inside the geometric "
                          "verification)")
     ap.add_argument("--corr-matcher", default="loftr",
-                    choices=["loftr", "mast3r", "roma", "feat", "pooled", "stage"],
+                    choices=["loftr", "mast3r", "roma", "feat", "pooled", "stage",
+                             "jamma"],
                     help="correction matcher: kornia LoFTR indoor (default), "
                          "MASt3R reciprocal-NN matches (needs the MASt3R "
                          "sources + checkpoint; see usgloc/correction.py), "
@@ -543,7 +544,8 @@ def parse_args():
                          "1.08, so the loss is convergence from a real anchor, not "
                          "map quality -- and three anchors see the scene from "
                          "geometrically different places.")
-    ap.add_argument("--corr-stage-warm", default="loftr", choices=["loftr", "mast3r"],
+    ap.add_argument("--corr-stage-warm", default="loftr",
+                    choices=["loftr", "mast3r", "jamma"],
                     help="--corr-matcher stage: which matcher runs the WARM-UP "
                          "rounds. The warm-up only has to land inside the field's "
                          "~1 cm basin, so its BASIN matters, not its precision. On "
@@ -778,8 +780,9 @@ def main():
             wvac=args.corr_wvac, wvac_thr=args.corr_wvac_thr,
         )
         _mname = {"mast3r": "MASt3R", "roma": f"RoMa {args.corr_roma_model}",
+                  "jamma": "JamMa",
                   "feat": "descriptor field", "pooled": "LoFTR + field pooled",
-                  "stage": (f"{ {'mast3r': 'MASt3R', 'loftr': 'LoFTR'}.get(args.corr_stage_warm, 'LoFTR') }"
+                  "stage": (f"{ {'mast3r': 'MASt3R', 'loftr': 'LoFTR', 'jamma': 'JamMa'}.get(args.corr_stage_warm, 'LoFTR') }"
                             f" x{args.corr_feat_stage} then field")}.get(
             args.corr_matcher, "LoFTR indoor")
         print(f"      matching correction ON ({_mname}, 640x480, "

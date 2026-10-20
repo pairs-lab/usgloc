@@ -113,6 +113,39 @@ _MAST3R_ROOT_FALLBACK = "/home/thanhnc/gauss_ws/third_party"
 _MAST3R_HF_ID = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
 _MAST3R_CKPT_FALLBACK = "/home/thanhnc/gauss_ws/third_party/mast3r_ckpt"
 
+# JamMa (CVPR'25) is SplatHLoc's fine matcher: a learned coarse+sub-pixel
+# matcher. It ships as a source tree, not a package, so it is used the way its
+# authors do -- point JAMMA_ROOT at a checkout that holds JamMa/ and its
+# configs. Weights are fetched by its own torch.hub call on first use.
+_JAMMA_ROOT_FALLBACK = "/home/thanhnc/gauss_ws/src/usgloc/SplatHLoc"
+
+
+def _load_jamma(root, device):
+    """Import the JamMa sources and build the model with official weights."""
+    import os
+    import sys
+
+    root = root or os.environ.get("JAMMA_ROOT") or _JAMMA_ROOT_FALLBACK
+    jm = os.path.join(root, "JamMa")
+    for pth in (root, jm):
+        if os.path.isdir(pth) and pth not in sys.path:
+            sys.path.insert(0, pth)
+    try:
+        from src.config.default import get_cfg_defaults
+        from src.lightning.lightning_jamma import PL_JamMa
+    except ImportError as e:
+        raise ImportError(
+            "matcher='jamma' needs the JamMa sources (a checkout holding "
+            f"JamMa/src/...); set JAMMA_ROOT. Tried {root!r}. ({e})") from e
+    cfg = get_cfg_defaults()
+    cfgf = os.path.join(jm, "configs/jamma/indoor/test.py")
+    if os.path.isfile(cfgf):
+        cfg.merge_from_file(cfgf)
+    model = PL_JamMa(cfg, pretrained_ckpt="official").eval().to(device)
+    for q in model.parameters():
+        q.requires_grad_(False)
+    return model
+
 
 def _load_mast3r(root: Optional[str], ckpt: Optional[str], device):
     """Import the MASt3R sources and load the checkpoint.
@@ -304,6 +337,8 @@ class EvidentialMatchCorrector:
                                      # integer STDLoc recipe)
         mast3r_ckpt: Optional[str] = None,   # HF id, local snapshot dir or .pth;
                                              # default: $MAST3R_CKPT or the HF id
+        jamma_root: Optional[str] = None,    # dir holding JamMa/ sources; default
+                                             # $JAMMA_ROOT or _JAMMA_ROOT_FALLBACK
         mast3r_root: Optional[str] = None,   # dir holding mast3r/ + dust3r/ sources;
                                              # default: $MAST3R_ROOT or _MAST3R_ROOT_FALLBACK
         mast3r_size: int = 512,      # long-side working resolution (multiple of 16)
@@ -464,8 +499,9 @@ class EvidentialMatchCorrector:
         self.feat_fine_thr = float(feat_fine_thr)
         self.feat_max = int(feat_max)
         self.feat_stage = int(feat_stage)
-        if stage_warm not in ("loftr", "mast3r"):
-            raise ValueError(f"stage_warm must be loftr | mast3r, got {stage_warm!r}")
+        if stage_warm not in ("loftr", "mast3r", "jamma"):
+            raise ValueError(
+                f"stage_warm must be loftr | mast3r | jamma, got {stage_warm!r}")
         self.stage_warm = stage_warm
         if arbiter not in ("none", "stage", "rounds"):
             raise ValueError(f"arbiter must be none | stage | rounds, got {arbiter!r}")
@@ -482,14 +518,19 @@ class EvidentialMatchCorrector:
         # in which case render() takes the byte-for-byte original code path.
         self._lf = None
         dev = emap.means.device
-        if matcher not in ("loftr", "mast3r", "roma", "feat", "pooled", "stage"):
+        if matcher not in ("loftr", "mast3r", "roma", "feat", "pooled", "stage",
+                           "jamma"):
             raise ValueError(
                 f"unknown matcher {matcher!r} "
-                "(loftr | mast3r | roma | feat | pooled | stage)")
+                "(loftr | mast3r | roma | feat | pooled | stage | jamma)")
         _needs_loftr = (matcher in ("loftr", "pooled")
                         or (matcher == "stage" and stage_warm == "loftr"))
         _needs_mast3r = (matcher == "mast3r"
                          or (matcher == "stage" and stage_warm == "mast3r"))
+        _needs_jamma = (matcher == "jamma"
+                        or (matcher == "stage" and stage_warm == "jamma"))
+        if _needs_jamma:
+            self.matcher = _load_jamma(jamma_root, dev)
         if _needs_loftr:
             import copy
 
@@ -818,6 +859,41 @@ class EvidentialMatchCorrector:
             x = F.interpolate(x, size=self._m_hw, mode="bicubic",
                               align_corners=False, antialias=True).clamp(0.0, 1.0)
         return (x - 0.5) / 0.5
+
+    def _jamma_prep(self, rgb: torch.Tensor) -> torch.Tensor:
+        """(H, W, 3) in [0, 1] -> (1, 3, H, W) in [0, 1].
+
+        SplatHLoc feeds JamMa the raw [0, 1] RGB of the query and of the render
+        with no further normalisation, so this reproduces that exactly. JamMa's
+        backbone strides by 8, which 640x480 already satisfies.
+        """
+        return rgb.to(torch.float32).clamp(0.0, 1.0).permute(2, 0, 1)[None]
+
+    @torch.no_grad()
+    def _match_jamma(self, img0: torch.Tensor, rgb_render: torch.Tensor) -> dict:
+        """One JamMa forward on (query, render), mapped to the shared contract.
+
+        JamMa does its own coarse match and then a LEARNED sub-pixel stage; the
+        latter is the component whose absence our fixed-window field refinement
+        is limited by (the field puts only ~66% of its correspondences inside
+        2 px against LoFTR's ~94%). ``confidence`` is JamMa's own ``mconf_f``.
+        """
+        dev = rgb_render.device
+        data = {"imagec_0": img0.to(dev), "imagec_1": self._jamma_prep(rgb_render)}
+        self.matcher.backbone(data)
+        self.matcher.matcher(data, mode="test")
+        k0 = data.get("mkpts0_f")
+        if k0 is None or k0.numel() == 0:
+            z = torch.zeros(0, 2, device=dev)
+            return {"keypoints0": z, "keypoints1": z.clone(),
+                    "confidence": torch.zeros(0, device=dev)}
+        k1 = data["mkpts1_f"]
+        conf = data.get("mconf_f")
+        if conf is None or conf.numel() != k0.shape[0]:
+            conf = torch.ones(k0.shape[0], device=dev)
+        return {"keypoints0": k0.to(dev, torch.float32),
+                "keypoints1": k1.to(dev, torch.float32),
+                "confidence": conf.to(dev, torch.float32)}
 
     @torch.no_grad()
     def _match_mast3r(self, img0: torch.Tensor, rgb_render: torch.Tensor) -> dict:
@@ -1239,7 +1315,13 @@ class EvidentialMatchCorrector:
         assert gray_q.shape == (H, W), f"query {tuple(gray_q.shape)} != camera {(H, W)}"
         img0 = None
         _stage_m3 = self.matcher_name == "stage" and self.stage_warm == "mast3r"
-        if _stage_m3:
+        _stage_jm = self.matcher_name == "stage" and self.stage_warm == "jamma"
+        if self.matcher_name == "jamma" or _stage_jm:
+            # JamMa takes raw [0, 1] RGB; the field rounds ignore img0.
+            if rgb_q is None:
+                rgb_q = gray_q.to(dev, torch.float32)[..., None].expand(H, W, 3)
+            img0 = self._jamma_prep(rgb_q)
+        elif _stage_m3:
             # The warm-up is MASt3R, so img0 must be its prepared RGB; the field
             # rounds read self._q_coarse / _q_fine and do not use img0 at all.
             if rgb_q is None:
@@ -1279,6 +1361,8 @@ class EvidentialMatchCorrector:
             if self.matcher_name == "loftr":
                 img1 = _to_gray(out["rgb"])[None, None].to(torch.float32)
                 corr = self._match_loftr(img0, img1)
+            elif self.matcher_name == "jamma":
+                corr = self._match_jamma(img0, out["rgb"])
             elif self.matcher_name == "feat":
                 corr = self._match_feat(out)
             elif self.matcher_name == "stage":
@@ -1288,6 +1372,8 @@ class EvidentialMatchCorrector:
                 if warm:
                     if self.stage_warm == "mast3r":
                         corr = self._match_mast3r(img0, out["rgb"])
+                    elif self.stage_warm == "jamma":
+                        corr = self._match_jamma(img0, out["rgb"])
                     else:
                         corr = self._match_loftr(
                             img0, _to_gray(out["rgb"])[None, None].to(torch.float32))
