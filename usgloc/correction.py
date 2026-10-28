@@ -1872,10 +1872,18 @@ class EvidentialMatchCorrector:
         if refine:
             # The winner was scored after ONE round; give it the full
             # iteration, starting from the pose that round produced.
-            rr = self.correct(query, best_c.T,
-                              rounds=self.rounds if refine_rounds is None
-                              else int(refine_rounds))
-            if rr.success and rr.inliers >= best_c.inliers:
+            n_ref = self.rounds if refine_rounds is None else int(refine_rounds)
+            rr = self.correct(query, best_c.T, rounds=n_ref)
+            # matcher='stage': the scoring pass ran `rounds` rounds, so it ends
+            # on a warm (MASt3R/LoFTR/JamMa) round whenever rounds <=
+            # feat_stage, while the refine runs the full cascade and ends on
+            # the field.  Inlier counts do not compare across matchers -- the
+            # field returns far fewer -- so the >= test discards every refine.
+            # Apply the main path's rule instead (`best_is_feat` in correct()):
+            # a field result always displaces a warm one.
+            cross = (self.matcher_name == "stage"
+                     and rounds <= self.feat_stage < n_ref)
+            if rr.success and (cross or rr.inliers >= best_c.inliers):
                 out = rr
         return SearchResult(T=out.T, T_view=best_T, best=out, score=best_s,
                             base_score=base_s, n_views=n_views, n_success=n_ok,
