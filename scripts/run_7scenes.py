@@ -544,6 +544,13 @@ def parse_args():
                          "1.08, so the loss is convergence from a real anchor, not "
                          "map quality -- and three anchors see the scene from "
                          "geometrically different places.")
+    ap.add_argument("--corr-feat-subpix", type=float, default=0.0,
+                    help="soft-argmax temperature for SUB-PIXEL localisation of the "
+                         "descriptor-field correspondences. The fine stage "
+                         "(locfeat.refine_match_windows) returns INTEGER pixels, which "
+                         "quantises every correspondence and puts a floor under the pose; "
+                         "0 keeps that behaviour, >0 localises the render-side position "
+                         "by a soft-argmax over the 3x3 neighbourhood. Try 0.1.")
     ap.add_argument("--corr-stage-warm", default="loftr",
                     choices=["loftr", "mast3r", "jamma"],
                     help="--corr-matcher stage: which matcher runs the WARM-UP "
@@ -770,6 +777,7 @@ def main():
             min_inlier_ratio=(args.corr_min_inlier_ratio if args.corr_min_inlier_ratio is not None
                               else (0.3 if args.corr_matcher in ("mast3r", "roma") else 0.0)),
             roma_model=args.corr_roma_model, roma_num=args.corr_roma_num,
+            feat_subpix=args.corr_feat_subpix,
             feat_stage=args.corr_feat_stage, arbiter=args.corr_arbiter,
             stage_warm=args.corr_stage_warm,
             stop_dt=args.corr_stop_dt, stop_dr=args.corr_stop_dr,
