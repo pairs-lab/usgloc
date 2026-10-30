@@ -1396,10 +1396,16 @@ recovers the scene where it does not (Stairs 3.37 to 2.22\,cm). Because the
 substitution is uniform it needs no per-scene decision, which is what makes it
 reportable where matcher SELECTION was not. Over the seven scenes it takes the
 average from 0.98 to 0.92\,cm and the success rate from 85 to 88\%, at roughly
-twice the query time and 9\,GB of GPU memory. It is not a free win on Stairs:
-MASt3R alone reaches 1.99\,cm there, better than the cascade's 2.22, so the
-field still costs something on that scene --- it is the other six that pay for
-it. We also note that the round budget matters little (Chess is identical at
+twice the query time and 9\,GB of GPU memory. Whether the descriptor field helps
+on Stairs depends on which fine-tune of that scene's map it is distilled onto, so
+we make no general claim. A matched $2{\times}2$ (seed 0, the same 100 queries, 8
+correction rounds, everything else frozen) crosses the two $640{\times}480$
+fine-tunes of the Stairs map with the cascade against MASt3R alone: on the
+reported map the field costs 0.32\,cm (2.13 against 1.80), while on the other it
+gains 0.10\,cm (1.89 against 1.99). The interaction, $+$0.42\,cm, exceeds either
+main effect, and no cell is significantly better than the reported one (paired
+sign test, $p=0.48$, $0.19$ and $0.04$ for the three alternatives, none surviving
+a correction for three comparisons). We also note that the round budget matters little (Chess is identical at
 8 and 12 rounds, Stairs marginally better at 8) and that MASt3R twice triggered
 a CUDA launch-timeout on our hardware at 12 rounds, which is why the reported
 configuration uses 8.
