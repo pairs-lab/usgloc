@@ -26,3 +26,6 @@ __pycache__/
 *.toc
 *.lot
 *.lof
+
+# Run reports: local audit trail, not versioned
+docs/reports/
