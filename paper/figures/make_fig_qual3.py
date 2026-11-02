@@ -75,6 +75,48 @@ def pick(rows):
     return sel
 
 
+def look_at(eye, tgt, up):
+    f = np.asarray(tgt,float)-np.asarray(eye,float); f/=np.linalg.norm(f)
+    r = np.cross(up,f); r/=np.linalg.norm(r)
+    return np.stack([r, np.cross(r,f), f])
+
+
+def centre(T):
+    T=np.asarray(T,float); return -T[:3,:3].T@T[:3,3]
+
+
+def mapview(scene, emap, rend, Cs, W=900, H=760):
+    """Free-camera render of the scene map, framed on the estimates."""
+    from usgloc.rendering import Camera
+    import torch as _t
+    UP = np.array([0.,-1.,0.])
+    tgt = np.mean(Cs, 0)
+    a, e = np.radians(295.0), np.radians(42.0)
+    eye = tgt + 1.9*np.array([np.cos(a)*np.cos(e), -np.sin(e), np.sin(a)*np.cos(e)])
+    R = look_at(eye, tgt, UP)
+    fx = 0.70*W
+    cx, cy = 0.5*W, 0.5*H
+    T = np.eye(4); T[:3,:3]=R; T[:3,3]=-R@eye
+    mu = emap.means.detach().cpu().numpy()
+    op = emap.opacities.detach().cpu().numpy()
+    lo, hi = np.min(Cs,0)-1.5, np.max(Cs,0)+1.5
+    keep = _t.from_numpy(np.all(mu>lo,1) & np.all(mu<hi,1) & (op>0.12)).to(emap.means.device)
+    with _t.no_grad():
+        rgb = rend.render(emap.means[keep], emap.covs[keep], emap.colors[keep],
+                          emap.opacities[keep],
+                          _t.tensor(T, dtype=_t.float32, device=emap.means.device),
+                          Camera(fx=fx, fy=fx, cx=cx, cy=cy, width=W, height=H)
+                          )["rgb"].clamp(0,1).cpu().numpy()
+    cam = dict(eye=eye, R=R, fx=fx, cx=cx, cy=cy)
+    return rgb, cam
+
+
+def proj(P, cam):
+    pc = (np.atleast_2d(P)-cam["eye"]) @ cam["R"].T
+    z = np.maximum(pc[:,2], 1e-6)
+    return cam["fx"]*pc[:,0]/z + cam["cx"], cam["fx"]*pc[:,1]/z + cam["cy"]
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     rows = gather(); sel = pick(rows)
@@ -101,6 +143,8 @@ def main():
                 outs[key] = rend.render(emap.means, emap.covs, emap.colors, emap.opacities,
                                         T, ds.scene_camera(640,480),
                                         vacuity=emap.gaussian_vacuity)["rgb"].clamp(0,1).cpu().numpy()
+        Cs = np.array([centre(r[k]) for k in ("T_ours","T_ace","T_mp","T_gt")])
+        outs["mapview"] = mapview(s, emap, rend, Cs)
         panels.append((r, outs))
         print(f"  [{r['why']:30s}] {s:11s} {r['seq']}/{r['frame']:06d}  "
               f"ours {r['e_ours']:7.2f} cm (sig pct {r['sig_pct']:3.0f})  "
@@ -110,12 +154,25 @@ def main():
     import matplotlib.pyplot as plt
     from PIL import Image
     cols = [("query","query"),("T_gt","ground truth"),("T_ours","USGLoc (ours)"),
-            ("T_ace","ACE"),("T_mp","Marepo")]
+            ("T_ace","ACE"),("T_mp","Marepo"),("mapview","3DGS map: where each pose lands")]
     plt.rcParams.update({"font.size": 8})
-    fig, axes = plt.subplots(len(panels), len(cols), figsize=(7.1, 1.42*len(panels)))
+    fig, axes = plt.subplots(len(panels), len(cols), figsize=(7.16, 1.30*len(panels)))
     for i,(r,outs) in enumerate(panels):
         for j,(key,title) in enumerate(cols):
-            ax = axes[i,j]; ax.imshow(outs[key]); ax.set_xticks([]); ax.set_yticks([])
+            ax = axes[i,j]
+            if key == "mapview":
+                rgb, cam = outs[key]
+                ax.imshow(rgb)
+                for T_, col, mk in (("T_ours", "#1f4e79", "^"), ("T_ace", "#c0504d", "s"),
+                                    ("T_mp", "#7f7f7f", "D")):
+                    cu, cv = proj(centre(r[T_]), cam)
+                    ax.plot(cu, cv, mk, color=col, ms=4.5, mec="white", mew=0.7, zorder=5)
+                gu, gv = proj(centre(r["T_gt"]), cam)
+                ax.plot(gu, gv, "o", mfc="none", mec="#19c37d", mew=1.6, ms=8, zorder=6)
+                ax.set_xlim(0, rgb.shape[1]); ax.set_ylim(rgb.shape[0], 0)
+            else:
+                ax.imshow(outs[key])
+            ax.set_xticks([]); ax.set_yticks([])
             for sp in ax.spines.values(): sp.set_visible(False)
             Image.fromarray((outs[key]*255).astype("uint8")).save(OUT/f"{i}_{key}.png")
             if i==0: ax.set_title(title.replace("\\textbf{","").replace("}",""), fontsize=8)
