@@ -50,8 +50,8 @@
 
 \begin{document}
 
-\title{\method{}: Uncertainty-Aware Semantic Visual Localization from
-3D Gaussian Splatting --- Extended Report}
+\title{Supplementary Material for \\ \method{}: Uncertainty-Aware Semantic
+Visual Localization from 3D Gaussian Splatting}
 
 \author{Thanh Nguyen Canh\orcidlink{0000-0001-6332-1002},~\IEEEmembership{Graduate Student Member,~IEEE},
 Bang Nguyen Van, Xiem HoangVan, and Nak Young Chong\orcidlink{0000-0001-5736-0769},~\IEEEmembership{Senior Member,~IEEE}
@@ -102,17 +102,9 @@ reports the headline benchmark results. This report is the companion record.
 Section~\ref{sec:impl} fixes every implementation detail. Sections
 \ref{sec:edl}--\ref{sec:retrieval} analyze the three learned components with
 measured numbers. Sections \ref{sec:protocol}--\ref{sec:sgloc} hold the
-extended evaluation. Figure~1 of the letter (the pipeline overview) applies
-unchanged and is reproduced in Fig.~\ref{fig:overview}.
-
-\begin{figure*}[t]
-  \centering
-  \resizebox{\textwidth}{!}{\input{figures/fig1_overview}}
-  \caption{The \method{} pipeline (reproduced from the letter). Offline, an
-  evidential semantic 3DGS map is trained; online, one evidential channel
-  gates matching, weights rendering-based refinement, and calibrates the output posterior. Section and equation numbers inside the figure refer to the letter.}
-  \label{fig:overview}
-\end{figure*}
+extended evaluation. Nothing here repeats the letter: the method, the pipeline
+overview and the headline tables are in the letter and are not reproduced.
+Where a table extends one of the letter's, the caption says so.
 
 %------------------------------------------------------------------------------
 \section{Implementation Details}
@@ -1170,7 +1162,7 @@ data, exceeds that of the pose it is given.
 % BEGIN AUTO prior-table
 \begin{table*}[t]
 \centering
-\caption{Prior refinement on 7Scenes (median cm/$^\circ$, SfM pseudo-GT). $\ddagger$: prior re-run by us on the identical 100 frames per scene; $\dagger$: as reported by GS-CPR~\cite{gscpr} from the same priors (its own prior rows agree with our re-runs to within 0.1\,cm). ``correction'': our evidential matching correction alone, seeded at the prior; ``full pipeline'': correction followed by the weighted refinement and polish. \textbf{Bold}: best; \underline{underlined}: second best, per column and per metric over every row of the table. }
+\caption{Prior refinement on 7Scenes, extending Table~III of the letter with two further rows (median cm/$^\circ$, SfM pseudo-GT). $\ddagger$: prior re-run by us on the identical 100 frames per scene; $\dagger$: as reported by GS-CPR~\cite{gscpr} from the same priors (its own prior rows agree with our re-runs to within 0.1\,cm). ``correction'': our evidential matching correction alone, seeded at the prior; ``full pipeline'': correction followed by the weighted refinement and polish. \textbf{Bold}: best; \underline{underlined}: second best, per column and per metric over every row of the table. }
 \label{tab:prior}
 \setlength{\tabcolsep}{2.2pt}
 \footnotesize
@@ -1309,7 +1301,7 @@ rather than ACE. \emph{Accuracy against availability}: median / 90th percentile
 of the accepted set; rejecting by $\sigma_t$ cuts our median 43\% and our 90th
 percentile 86\%, against 20\% and 47\% for ACE by its inlier count, although
 ACE starts from a much shorter tail. For a cross-method statement about signal
-QUALITY use AUSE and the rank correlation of Table~\ref{tab:conf}, which
+QUALITY use AUSE and the rank correlation of Table~\ref{tab:unc-compare}, which
 normalize each signal against its own oracle. \textbf{Bold}: better of the two.}
 \label{tab:uncert-worth}
 \centering\footnotesize
@@ -1338,7 +1330,7 @@ keep 50\% & \textbf{0.47} / \textbf{1.22} & 0.70 / 1.42\\
 
 \section{The Rasterized Descriptor Field}
 \label{sec:locfeat}
-The correction of Sec.~\ref{sec:correction} matches the query against the
+The correction of Sec.~III-D of the letter matches the query against the
 \emph{rendered RGB} of the map. An alternative is to match it against a
 per-Gaussian descriptor field distilled onto the map and rasterized alongside
 the colour and vacuity channels, the representation STDLoc~\cite{stdloc}
