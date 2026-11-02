@@ -82,7 +82,7 @@ Localization, 3D gaussian splatting, semantic scene understanding, uncertainty q
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{fig1_teaser.pdf}
-\caption{\method{} returns a pose \emph{and} its covariance. Left: a 7-Scenes \textit{fire} query and the Gaussian map rendered at the pose each method returned, with translation error. Right: the same map from a free camera; every test query is coloured by the $\sigma_t$ \method{} reported for it, and the selected query shows its estimated pose, the true pose, and the $2\sigma$ covariance. The query is a favourable example chosen for legibility; Tables~\ref{tab:7scenes}--\ref{tab:12scenes} give the distribution.}
+\caption{\method{} returns a pose \emph{and} its covariance. Left: a 7-Scenes \textit{fire} query and the Gaussian map rendered at the pose each method returned, with translation error. Right: the same map from a free camera, every test query coloured by the $\sigma_t$ we reported for it, with one query showing its estimated pose, the true pose and the $2\sigma$ covariance. A favourable query, chosen for legibility; Tables~\ref{tab:7scenes}--\ref{tab:12scenes} give the distribution.}
 \label{fig:teaser}
 \end{figure*}
 \IEEEPARstart{V}{isual} localization estimates the 6-DoF camera pose of a query image inside a previously mapped scene, which is a core capability for indoor mobile robots and micro aerial vehicles (MAVs)~\cite{kerbl3dgs,sgloc,chukim}. On these platforms the pose is rarely consumed on its own. It enters a recursive Bayesian estimator, such as an EKF or UKF, and is fused with inertial and other cues~\cite{ukf}. This fusion is only as sound as the \emph{uncertainty} attached to each measurement. A pose without a covariance forces the estimator to assume a fixed noise model. A fixed model cannot reflect scene ambiguity, occlusion, dynamics, or texture sparsity. These are exactly the conditions under which localization degrades. An localizer should therefore output a \emph{calibrated distribution} over pose, not a point.
@@ -103,7 +103,7 @@ A separate line of work quantifies uncertainty rigorously, but it stops short of
 \begin{figure*}[t]
 \centering
 \resizebox{\textwidth}{!}{\input{figures/fig1_overview}}
-\caption{Overview of \method{}. \textbf{Offline} (left, grey): mapping frames train a semantic 3DGS map with an EDL head. Conflict-aware DST fusion turns per-observation opinions $(\mathbf{b},u)$ into evidential primitives $\mathcal{G}_i=(\bm\mu_i,\bm\Sigma_i,f_i,\mathbf{p}_i,\tilde{u}_i)$. \textbf{Online} (top): the query is encoded by the same evidential head, matched against the map, and refined by differentiable rendering. The result is a calibrated Gaussian-mixture posterior $p(T\,|\,I_q,\mathcal{M})$ that condenses to a single Gaussian for an EKF. \textbf{One evidential channel} (bottom, gold): the same vacuity signal is injected at four points. It gates matching, it gates the correspondences of the matching correction, it weights the rendering residual per pixel, and it scales the Laplace covariance through the held-out temperature $\tau$. Equation numbers in parentheses.}
+\caption{\method{} overview. \textbf{Offline} (grey): mapping frames train a semantic 3DGS map with an EDL head; conflict-aware DST fusion turns per-observation opinions $(\mathbf{b},u)$ into evidential primitives $\mathcal{G}_i$. \textbf{Online} (top): the query is encoded by the same head, matched against the map, and refined by differentiable rendering, yielding a calibrated Gaussian-mixture posterior that condenses to one Gaussian for an EKF. \textbf{One evidential channel} (gold): the same vacuity signal gates matching, gates the correction's correspondences, weights the rendering residual per pixel, and scales the Laplace covariance through the held-out temperature $\tau$.}
 \label{fig:overview}
 \end{figure*}
 
@@ -276,8 +276,7 @@ Accuracy is not uniform, and the cause is specific. Per-scene error is bounded b
 
 \begin{table*}[t]
 \centering
-\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the
-SfM pseudo-ground truth~\cite{brachmann2021dslam}. Lower is better. \textbf{Bold}: best; \underline{underlined}: second best, per column and per metric over every row of the table. Methods are grouped as in the recent literature~\cite{ugsloc,gscpr}: absolute-pose regression (APR), scene-coordinate regression (SCR) and neural-rendering methods, the last split by whether an external pose prior is required at test time; \method{} appears in both neural-rendering groups, since its correction can equally refine a given prior. Each row is printed at the precision of its source. $\dagger$: as reported in the cited paper. $\dagger r$: not the cited paper's own number --- PoseNet and Marepo were retrained under the SfM pseudo-ground truth, by NeFeS~\cite{nefes} and by GS-CPR~\cite{gscpr} respectively (their own papers report 32\,cm/8.12$^\circ$ on Chess and 3.9\,cm/1.68$^\circ$ on average under the DSLAM convention). $\dagger s$: the cited papers report only success rates on 7Scenes; these medians are as printed in STDLoc~\cite{stdloc} and reproduced identically by ULF-Loc and SplatHLoc. $\P$: the source does not state its ground-truth convention; we infer it from its reprinted baseline rows. $m$: the correction run as a CASCADE -- MASt3R~\cite{mast3r} for the leading rounds, then the map\'s own rasterized descriptor field (the extended report's \emph{Rasterized Descriptor Field} section) -- instead of LoFTR throughout, median of 3 seeds (the per-scene spread over the seeds is at most 0.10\,cm), one configuration for every scene with no per-scene choice. The field is three times more precise than RGB matching at the answer but has a convergence basin of about 1\,cm, so what the leading matcher must supply is BASIN rather than precision: MASt3R reaches 0.68\,cm on the perturbed Stairs floor where LoFTR reaches 2.17, and the substitution is accordingly free where LoFTR already converges into the basin (Chess $+$0.01, Heads $+$0.02, Kitchen $+$0.01\,cm) and decisive where it does not (Stairs 3.37 to 2.22\,cm with the field, which a LoFTR-led cascade loses outright). It raises the success rate at 5\,cm/5$^\circ$ from 85 to 88\%, and roughly doubles query time (MASt3R needs about 9\,GB of GPU memory; on our card it triggered a CUDA launch-timeout at 12 correction rounds, so the reported runs use 8). GS-CPR and UGS-Loc refine an ACE prior. PoseNet/Marepo rows are the SfM re-evaluations of~\cite{gscpr}. iComMa~\cite{icomma} publishes no 7Scenes results and is compared in the ablations. SGLoc~\cite{sgloc} evaluates only 4/7 scenes with an unstated ground-truth convention and is discussed in the text. $\ddagger$: re-run by us with the authors' released pgt models and their \texttt{dsacstar} pose solver on the full test split; it reproduces the published average (1.09/0.34 versus 1.1/0.34), so our re-run is faithful. A paired run on the identical 100 query frames as our method gives 1.05\,cm average, confirming the subsample is unbiased. Ours: median of 3 seeds, 100 test queries per scene, one frozen configuration. The two prior-refinement rows of \method{} seed the pipeline from the re-run ACE and Marepo poses on the same frames (seed 0) and use, for each prior, the variant the extended report recommends: the correction alone after a centimetre-accurate prior, the full pipeline after a coarse one; both variants for both priors are in Table~\ref{tab:prior}.}
+\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better. $\dagger$: as reported by the authors. $\dagger r$: retrained under the SfM pseudo-GT, PoseNet by NeFeS~\cite{nefes} and Marepo by GS-CPR~\cite{gscpr}. $\dagger s$: medians as printed in STDLoc~\cite{stdloc}, whose sources report only success rates. $m$: our correction run as a MASt3R~\cite{mast3r}$\,\to\,$descriptor-field cascade rather than LoFTR throughout; median of 3 seeds, 100 test queries per scene, one configuration for every scene.}
 \label{tab:7scenes}
 \setlength{\tabcolsep}{2.2pt}
 \footnotesize
@@ -299,19 +298,7 @@ Table~\ref{tab:12scenes} extends the comparison to 12Scenes. The strongest prior
 
 \begin{table}[t]
 \centering
-\caption{12Scenes, averaged over the 12 scenes. Median translation/rotation
-and the share of queries within 5\,cm/5$^\circ$ and 2\,cm/2$^\circ$; a dash
-means the source publishes no such number, which we do not fill from
-elsewhere. Groups as in Table~\ref{tab:7scenes}. \textbf{Bold}: best; \underline{underlined}: second best, per column and per metric over every row of the table. 
-$\dagger$: as reported by the method's authors.
-$\S$: as reported by a third paper rather than by the authors (the
-Marepo, DSAC* and ACE medians are GS-CPR's re-evaluations under the SfM
-pseudo-ground truth~\cite{gscpr}, GLACE's is as reprinted by
-UGS-Loc~\cite{ugsloc}, and GSplatLoc's and STDLoc's are
-ULF-Loc's~\cite{ulfloc}).
-$\P$: the source does not state its ground-truth convention; its reprinted
-baseline rows match the SfM pseudo-GT ones digit for digit, so we infer it.
-}
+\caption{12Scenes, averaged over the 12 scenes: median translation/rotation and the share of queries within 5\,cm/5$^\circ$ and 2\,cm/2$^\circ$. A dash means the source publishes no such number, which we do not fill from elsewhere. $\dagger$: as reported by the authors. $\S$: as reported by a third paper rather than by the authors.}
 \label{tab:12scenes}
 \setlength{\tabcolsep}{4pt}
 \footnotesize
@@ -341,7 +328,7 @@ GSplatLoc~\cite{gsplatloc}$^\S$ & 1.4/0.26 & 91.9 & 70.3\\
 % BEGIN AUTO prior-table
 \begin{table}[t]
 \centering
-\caption{Prior refinement on 7Scenes (median cm/$^\circ$, SfM pseudo-GT). $\ddagger$: prior re-run by us on the identical 100 frames per scene; $\dagger$: as reported by GS-CPR~\cite{gscpr} from the same priors (its own prior rows agree with our re-runs to within 0.1\,cm). ``correction'': our evidential matching correction alone, seeded at the prior. \textbf{Bold}: best; \underline{underlined}: second best, per column and per metric over every row of the table. }
+\caption{Prior refinement on 7Scenes (median cm/$^\circ$, SfM pseudo-GT). $\ddagger$: the prior is re-run by us on the same 100 frames per scene. $\dagger$: as reported by GS-CPR~\cite{gscpr}. ``Correction'' is the matching correction alone; ``full'' is the complete pipeline seeded from the prior.}
 \label{tab:prior}
 \setlength{\tabcolsep}{2.2pt}
 \footnotesize
@@ -388,7 +375,7 @@ Coverage is closest to nominal at the 68.3\% level (61.1\%) but falls increasing
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{fig_qual3.pdf}
-\caption{Map rendered at the pose returned by \method{}, ACE and Marepo on identical queries, against ground truth. Rows are chosen by a fixed rule, one scene each: we are confident and right; we are wrong and say so; ACE fails where we do not; ACE beats us. Per-panel: translation error, and for \method{} the percentile of its own reported $\sigma_t$.}
+\caption{Map rendered at the pose \method{}, ACE and Marepo returned on identical queries, against ground truth. One row per scene, chosen by a fixed rule: confident and right; wrong and saying so; ACE fails where we do not; ACE beats us. Panels give translation error and, for \method{}, the percentile of its own $\sigma_t$.}
 \label{fig:qual3}
 \end{figure}
 
