@@ -944,6 +944,10 @@ def main():
         save_png(out_ref["rgb"], vis / f"{stem}_refined.png")
         save_png(out_ref["vacuity"], vis / f"{stem}_vacuity.png")
         save_png(torch.exp(-args.gamma * out_ref["vacuity"]), vis / f"{stem}_weight.png")
+        import json as _json
+        with open(vis / f"{stem}_poses.json", "w") as f:   # for the third-person map view
+            _json.dump({"T0": res.hypotheses[k].T0.detach().cpu().tolist(),
+                        "T_mode": cond.T_mode.detach().cpu().tolist()}, f)
 
     prior_poses = None
     if args.prior_json:

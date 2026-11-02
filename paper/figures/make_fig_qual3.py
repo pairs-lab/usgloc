@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""Qualitative comparison against the Table I baselines, identical queries.
+"""Fig. 5: qualitative comparison against the Table I baselines, identical queries.
 
-Baselines are the ones Table I lists for which per-frame poses exist on this
-machine: ACE (authors' models + their dsacstar solver) and Marepo. PoseNet,
-DSAC* and GSplatLoc publish no per-frame poses we can render.
-Runs are the REPORTED configuration (results/m3u8_seed0), 100 frames per scene.
+Baselines are the Table I methods with per-frame poses on this machine: ACE
+(authors' models + their dsacstar solver) and Marepo. Ours is the reported
+configuration (results/m3u8_seed0), 100 frames per scene. One row per scene:
+the query with the largest margin over both baselines among our sub-centimetre
+results (rule in pick()), so these are favourable examples by design.
 
-Frames are chosen by a DISCLOSED RULE, not hand-picked:
-  row 1  we are accurate and our sigma_t is in its lowest decile   (confident & right)
-  row 2  we FAIL (>5 cm) and our sigma_t is in its top decile      (we announce it)
-  row 3  SplatHLoc fails (>5 cm) while its inlier count is in its  (silent failure)
-         top half -- i.e. it is confident and wrong
-  row 4  SplatHLoc beats us by the largest margin                  (honest contrast)
-Each row prints every method's error and its reported confidence.
+    python3 make_fig_qual3.py                 # render panels (GPU) + compose
+    python3 make_fig_qual3.py --compose-only  # re-lay out the cached panels (CPU)
 """
 import json, glob, os, re, sys, functools
 print = functools.partial(print, flush=True)
@@ -85,18 +81,21 @@ def centre(T):
     T=np.asarray(T,float); return -T[:3,:3].T@T[:3,3]
 
 
-def mapview(scene, emap, rend, Cs, W=900, H=760):
-    """Free-camera render of the scene map, framed on the estimates."""
-    from usgloc.rendering import Camera
-    import torch as _t
-    UP = np.array([0.,-1.,0.])
+def mapview_cam(Cs, W=900, H=760):
+    """Free camera framed on the estimates (a pure function of the poses)."""
+    UP = np.array([0., -1., 0.])
     tgt = np.mean(Cs, 0)
     a, e = np.radians(295.0), np.radians(42.0)
     eye = tgt + 1.9*np.array([np.cos(a)*np.cos(e), -np.sin(e), np.sin(a)*np.cos(e)])
-    R = look_at(eye, tgt, UP)
-    fx = 0.70*W
-    cx, cy = 0.5*W, 0.5*H
-    T = np.eye(4); T[:3,:3]=R; T[:3,3]=-R@eye
+    return dict(eye=eye, R=look_at(eye, tgt, UP), fx=0.70*W, cx=0.5*W, cy=0.5*H, W=W, H=H)
+
+
+def mapview(scene, emap, rend, Cs):
+    """Free-camera render of the scene map, framed on the estimates."""
+    from usgloc.rendering import Camera
+    import torch as _t
+    cam = mapview_cam(Cs)
+    T = np.eye(4); T[:3,:3] = cam["R"]; T[:3,3] = -cam["R"]@cam["eye"]
     mu = emap.means.detach().cpu().numpy()
     op = emap.opacities.detach().cpu().numpy()
     lo, hi = np.min(Cs,0)-1.5, np.max(Cs,0)+1.5
@@ -105,9 +104,9 @@ def mapview(scene, emap, rend, Cs, W=900, H=760):
         rgb = rend.render(emap.means[keep], emap.covs[keep], emap.colors[keep],
                           emap.opacities[keep],
                           _t.tensor(T, dtype=_t.float32, device=emap.means.device),
-                          Camera(fx=fx, fy=fx, cx=cx, cy=cy, width=W, height=H)
+                          Camera(fx=cam["fx"], fy=cam["fx"], cx=cam["cx"], cy=cam["cy"],
+                                 width=cam["W"], height=cam["H"])
                           )["rgb"].clamp(0,1).cpu().numpy()
-    cam = dict(eye=eye, R=R, fx=fx, cx=cx, cy=cy)
     return rgb, cam
 
 
@@ -117,13 +116,11 @@ def proj(P, cam):
     return cam["fx"]*pc[:,0]/z + cam["cx"], cam["fx"]*pc[:,1]/z + cam["cy"]
 
 
-def main():
-    OUT.mkdir(parents=True, exist_ok=True)
-    rows = gather(); sel = pick(rows)
-    print(f"{len(rows)} frames with all three poses\n")
-    dev, rend, panels = "cuda", GsplatRenderer(), []
-    cache = {}
-    for r in sel:
+def render(sel):
+    """GPU: render every panel of the selected rows into OUT/ as PNG."""
+    from PIL import Image
+    dev, rend, cache = "cuda", GsplatRenderer(), {}
+    for i, r in enumerate(sel):
         s = r["scene"]
         if s not in cache:
             ds = SevenScenes("data/7scenes_source", s, split="test", sfm_pose_dir=PGT)
@@ -144,54 +141,79 @@ def main():
                                         T, ds.scene_camera(640,480),
                                         vacuity=emap.gaussian_vacuity)["rgb"].clamp(0,1).cpu().numpy()
         Cs = np.array([centre(r[k]) for k in ("T_ours","T_ace","T_mp","T_gt")])
-        outs["mapview"] = mapview(s, emap, rend, Cs)
-        panels.append((r, outs))
-        print(f"  [{r['why']:30s}] {s:11s} {r['seq']}/{r['frame']:06d}  "
-              f"ours {r['e_ours']:7.2f} cm (sig pct {r['sig_pct']:3.0f})  "
-              f"ACE {r['e_ace']:7.2f} cm   Marepo {r['e_mp']:7.2f} cm")
+        outs["mapview"] = mapview(s, emap, rend, Cs)[0]
+        for key, im in outs.items():
+            Image.fromarray((im*255).astype("uint8")).save(OUT/f"{i}_{key}.png")
 
+
+def ordinal(n):
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1:'st', 2:'nd', 3:'rd'}.get(n % 10, 'th')}"
+
+
+def compose(sel, out="paper/figures/fig_qual3.pdf"):
+    """CPU: exact grid, every panel 4:3 and the same size, Times like the paper."""
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from PIL import Image
-    cols = [("query","query"),("T_gt","ground truth"),("T_ours","USGLoc (ours)"),
-            ("T_ace","ACE"),("T_mp","Marepo"),("mapview","3DGS map view")]
-    plt.rcParams.update({"font.size": 8})
-    fig, axes = plt.subplots(len(panels), len(cols), figsize=(7.16, 1.18*len(panels)))
-    for i,(r,outs) in enumerate(panels):
-        for j,(key,title) in enumerate(cols):
-            ax = axes[i,j]
-            if key == "mapview":
-                rgb, cam = outs[key]
-                ax.imshow(rgb)
-                for T_, col, mk in (("T_ours", "#1f4e79", "^"), ("T_ace", "#c0504d", "s"),
-                                    ("T_mp", "#7f7f7f", "D")):
-                    cu, cv = proj(centre(r[T_]), cam)
-                    ax.plot(cu, cv, mk, color=col, ms=6.5, mec="white", mew=0.9, zorder=5)
+    plt.rcParams.update({"font.family": "serif",
+                         "font.serif": ["Nimbus Roman", "Liberation Serif", "STIXGeneral"],
+                         "mathtext.fontset": "stix", "pdf.fonttype": 42})
+    C = dict(T_ours="#1B9E77", T_ace="#7570B3", T_mp="#6E6E6E")   # = Fig. 4 colours
+    cols = [("query", "query"), ("T_gt", "ground truth"), ("T_ace", "ACE"),
+            ("T_mp", "Marepo"), ("T_ours", r"$\mathbf{USGLoc}$ (ours)"), ("mapview", "3DGS map view")]
+    W, L, R, TOP, BOT = 7.16, 0.15, 0.01, 0.17, 0.01      # inches; W = IEEE text width
+    g, gm, gr = 0.022, 0.07, 0.022                        # column gap, gap before map, row gap
+    w = (W - L - R - 4*g - gm) / 6; h = 0.75*w
+    H = TOP + len(sel)*h + (len(sel)-1)*gr + BOT
+    fig = plt.figure(figsize=(W, H))
+    for i, r in enumerate(sel):
+        y = H - TOP - (i+1)*h - i*gr
+        for j, (key, title) in enumerate(cols):
+            x = L + j*(w+g) + (gm - g if j == 5 else 0)
+            ax = fig.add_axes([x/W, y/H, w/W, h/H]); ax.set_axis_off()
+            im = np.asarray(Image.open(OUT/f"{i}_{key}.png"))
+            if key == "mapview":                           # 900x760 -> 4:3, centred on the poses
+                cam = mapview_cam(np.array([centre(r[k]) for k in ("T_ours","T_ace","T_mp","T_gt")]))
+                ch = int(round(im.shape[1]*0.75))
                 gu, gv = proj(centre(r["T_gt"]), cam)
-                ax.plot(gu, gv, "o", mfc="none", mec="#19c37d", mew=2.0, ms=12, zorder=6)
-                ax.set_xlim(0, rgb.shape[1]); ax.set_ylim(rgb.shape[0], 0)
+                v0 = int(np.clip(gv[0] - ch/2, 0, im.shape[0]-ch))
+                ax.imshow(im[v0:v0+ch], interpolation="lanczos")
+                for k, mk in (("T_ace", "s"), ("T_mp", "D"), ("T_ours", "^")):
+                    cu, cv = proj(centre(r[k]), cam)
+                    ax.plot(cu, cv-v0, mk, color=C[k], ms=5.0, mec="white", mew=0.7, zorder=5)
+                ax.plot(gu, gv-v0, "o", mfc="none", mec="white", mew=1.6, ms=10.5, zorder=6)
+                ax.plot(gu, gv-v0, "o", mfc="none", mec="black", mew=0.5, ms=12.2, zorder=6)
+                ax.set_xlim(0, im.shape[1]); ax.set_ylim(ch, 0)
             else:
-                ax.imshow(outs[key])
-            ax.set_xticks([]); ax.set_yticks([])
-            for sp in ax.spines.values(): sp.set_visible(False)
-            _img = outs[key][0] if key == "mapview" else outs[key]
-            Image.fromarray((_img*255).astype("uint8")).save(OUT/f"{i}_{key}.png")
-            if i==0: ax.set_title(title.replace("\\textbf{","").replace("}",""), fontsize=8)
-        axes[i,0].set_ylabel(r['scene'], fontsize=7.5)
-        # errors sit INSIDE the panels: below them they cost a row of whitespace
-        # and read as detached from the image they describe
-        def stamp(ax, txt, fc):
-            ax.text(0.035, 0.05, txt, transform=ax.transAxes, fontsize=7.0,
-                    color="white", va="bottom", ha="left", zorder=9,
-                    bbox=dict(boxstyle="round,pad=0.22", fc=fc, alpha=0.90, lw=0))
-        stamp(axes[i,2], f"{r['e_ours']:.2f} cm   $\\sigma_t$ {r['sig_pct']:.0f}th pct", "#c0504d")
-        stamp(axes[i,3], f"{r['e_ace']:.2f} cm", "#333333")
-        stamp(axes[i,4], f"{r['e_mp']:.2f} cm", "#333333")
-    fig.subplots_adjust(wspace=0.012, hspace=0.045, left=0.034, right=0.998, top=0.955, bottom=0.008)
-    fig.savefig("paper/figures/fig_qual3.pdf", dpi=200)
-    json.dump([{k:v for k,v in r.items() if not k.startswith("T_")} for r,_ in panels],
+                ax.imshow(im, interpolation="lanczos")
+            if i == 0:
+                ax.text(0.5, 1.0 + 0.04/h, title, transform=ax.transAxes, ha="center", va="bottom",
+                        fontsize=8)
+            if key in C:
+                txt = f"{r['e_' + {'T_ours':'ours','T_ace':'ace','T_mp':'mp'}[key]]:.2f} cm"
+                if key == "T_ours":
+                    txt += rf"$\;\cdot\;\sigma_t$ {ordinal(int(round(r['sig_pct'])))} pct"
+                ax.text(0.03, 0.045, txt, transform=ax.transAxes, fontsize=6.8, color="white",
+                        va="bottom", ha="left", zorder=9,
+                        bbox=dict(boxstyle="round,pad=0.2", fc=C[key], alpha=0.92, lw=0))
+        fig.text((L-0.02)/W, (y+h/2)/H, r["scene"], rotation=90, ha="right", va="center", fontsize=7.5)
+    fig.savefig(out, dpi=300)
+    print(f"saved {out}  ({W:.2f} x {H:.2f} in)")
+
+
+def main():
+    OUT.mkdir(parents=True, exist_ok=True)
+    rows = gather(); sel = pick(rows)
+    print(f"{len(rows)} frames with all three poses")
+    for r in sel:
+        print(f"  {r['scene']:11s} {r['seq']}/{r['frame']:06d}  ours {r['e_ours']:6.2f} cm"
+              f" (sig pct {r['sig_pct']:3.0f})  ACE {r['e_ace']:6.2f}  Marepo {r['e_mp']:6.2f}")
+    if "--compose-only" not in sys.argv:
+        render(sel)
+    compose(sel)
+    json.dump([{k:v for k,v in r.items() if not k.startswith("T_")} for r in sel],
               open(OUT/"selection.json","w"), indent=1)
-    print("\nsaved paper/figures/fig_qual3.pdf")
+
 
 if __name__ == "__main__":
     main()
