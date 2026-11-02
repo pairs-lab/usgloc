@@ -130,3 +130,41 @@ ia.text(fu[0]-span*0.85+bar*px_per_cm/2, fv[0]+span*0.66, f"{bar:g} cm", color="
 ax.add_patch(Rectangle((fu[0]-span, fv[0]-span), 2*span, 2*span, fill=False, ec="white", lw=1.4))
 fig.savefig(OUT/"panel_post.png", dpi=200)
 print(f"seq-03/909: error {err:.2f} cm, reported 1-sigma {sig:.2f} cm")
+
+# ----------------------------------------------------------- panel_frames
+# three real CHESS mapping frames (the overview is told on one scene)
+from usgloc.datasets import SevenScenes
+ds = SevenScenes("data/7scenes_source", "chess", split="train",
+                 sfm_pose_dir="data/visloc_pseudo_gt_limitations/pgt/sfm/7scenes")
+for n, i in enumerate(np.linspace(150, len(ds)-150, 3).round().astype(int)):
+    im = ds.load_image(int(i)).numpy()
+    Image.fromarray((np.clip(im, 0, 1)*255).astype("uint8")).resize((320, 240), Image.LANCZOS)\
+         .save(OUT/f"chess_frame{n}.png")
+print("chess mapping frames written")
+
+# ------------------------------------------------------------ panel_sem
+# the semantic 3DGS straight out of the EDL head: every Gaussian, coloured by
+# its argmax class, washed toward grey by its own (pre-fusion) vacuity u.
+import torch
+m = torch.load("maps/chess_r1.pt", map_location="cpu", weights_only=False)
+mu = m["means"].numpy(); bel = m["beliefs"].numpy(); uu = m["vacuities"].numpy()
+op = m["opacities"].numpy()
+keep = op > 0.10
+mu, bel, uu = mu[keep], bel[keep], uu[keep]
+pu, pv, pz = proj(mu)
+ins = (pz > 0.15) & (pu >= X0) & (pu < X1-2) & (pv >= Y0) & (pv < Y1-2)
+pu, pv, pz, bel, uu = pu[ins], pv[ins], pz[ins], bel[ins], uu[ins]
+cls = bel.argmax(1)
+pal = np.array(plt.cm.tab20(np.linspace(0, 1, 20)))[:, :3]
+pal = np.vstack([pal, np.array(plt.cm.Set2(np.linspace(0, 1, 8)))[:5, :3]])
+col = pal[cls % len(pal)]
+grey = np.array([0.80, 0.80, 0.82])
+col = (1 - uu[:, None]*0.60)*col + (uu[:, None]*0.60)*grey
+order = np.argsort(-pz)                       # far first, near last wins
+iu = (pu[order]-X0).astype(int); iv = (pv[order]-Y0).astype(int); cc = col[order]
+img = np.ones((Y1-Y0, X1-X0, 3))*0.97
+for dx in (0, 1):
+    for dy in (0, 1):
+        img[np.clip(iv+dy, 0, Y1-Y0-1), np.clip(iu+dx, 0, X1-X0-1)] = cc
+Image.fromarray((np.clip(img, 0, 1)*255).astype("uint8")).save(OUT/"panel_sem.png")
+print(f"semantic splat: {ins.sum()} Gaussians, {len(np.unique(cls))} classes present")

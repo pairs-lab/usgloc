@@ -1,8 +1,9 @@
-% Fig. 2 -- USGLoc overview, in the E2-BKI (RA-L 2026) style: one row of stage
-% panels, each = bold title + a LARGE real visual + one defining equation.
-% Every image is real output for the same chess query (seq-03/909) or the same
-% chess map; nothing is a schematic glyph. Explanation lives in the caption.
-% Images: fig1_blocks/ (make_overview_panels.py) and fig4/ (pipeline visuals).
+% Fig. 2 -- USGLoc overview. Full pipeline structure (offline mapping chain,
+% coarse and fine online stages, one evidential channel) drawn in the E2-BKI
+% panel style: each stage = bold title + large REAL visual + its equation from
+% the paper. U-shaped flow: coarse row left->right, fine row right->left.
+% Images: fig1_blocks/ (make_overview_panels.py, CPU) and fig4/ (pipeline run).
+% Notation follows Sec. III of the paper exactly.
 \documentclass[tikz,border=2pt]{standalone}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{graphicx}
@@ -13,86 +14,154 @@
 \definecolor{uHigh}{HTML}{D95F02}
 \definecolor{outLn}{HTML}{D9A300}
 \definecolor{poseC}{HTML}{2E6FAC}
+\definecolor{fineC}{HTML}{B4531A}
 \begin{document}
 \begin{tikzpicture}[
   font=\footnotesize\color{ink},
-  >={Stealth[length=2.4mm,width=2.0mm]},
-  stage/.style={draw=ink!45, fill=white, rounded corners=3pt, line width=0.6pt},
-  ttl/.style={font=\footnotesize\bfseries\color{ink}, anchor=north, align=center},
+  >={Stealth[length=2.3mm,width=1.9mm]},
+  blk/.style={draw=#1!55, fill=white, rounded corners=3pt, line width=0.6pt},
+  ttl/.style={font=\footnotesize\bfseries, anchor=north, align=center},
   eqn/.style={font=\footnotesize\color{ink}, anchor=south, align=center},
+  lab/.style={font=\scriptsize\color{ink!80}, align=center},
   tag/.style={font=\scriptsize\bfseries\color{white}, fill=ink!80, rounded corners=1.5pt,
-              inner sep=1.6pt, anchor=north west},
-  flow/.style={->, line width=1.5pt, draw=ink!85},
+              inner sep=1.5pt, anchor=north west},
+  flow/.style={->, line width=1.4pt, draw=ink!85},
+  bus/.style={->, line width=0.9pt, draw=ink!65},
   rail/.style={line width=1.3pt, draw=outLn},
   inj/.style={->, line width=1.0pt, draw=outLn},
 ]
-\def\PW{3.26}\def\PH{3.50}\def\IW{3.08}\def\IH{2.25}
-% centres of the five stages
-\foreach \n/\x in {1/1.63, 2/5.32, 3/9.01, 4/12.70, 5/16.39}{
-  \coordinate (c\n) at (\x, 0);
+% --------------------------------------------------------------- geometry
+\def\RH{3.30}                 % row height
+\def\BW{4.07}                 % online block width
+\def\IW{3.85}\def\IH{2.02}    % online image box
+% online columns (left edges) and rows (bottom edges)
+\def\cA{4.92}\def\cB{9.44}\def\cC{13.96}
+\def\rF{0.00}\def\rC{4.10}    % fine row, coarse row
+\coordinate (A) at (\cA+\BW/2, 0); \coordinate (B) at (\cB+\BW/2, 0); \coordinate (C) at (\cC+\BW/2, 0);
+
+% ===================================================== OFFLINE column
+\draw[blk=ink, fill=ink!4, dashed] (0,\rF) rectangle (4.52, \rC+\RH);
+\node[font=\footnotesize\bfseries\color{ink}, anchor=south west] at (0.02, \rC+\RH+0.02)
+  {Offline: evidential mapping};
+% mapping frames
+\foreach \i/\d in {2/0.24, 1/0.12, 0/0.00}{
+  \node[inner sep=0pt, draw=ink!60, line width=0.35pt] at (2.12+\d, 6.42+\d)
+    {\includegraphics[width=1.55cm]{fig1_blocks/chess_frame\i.png}};
 }
-
-% ---------------------------------------------------------------- panels
-\draw[stage, fill=ink!4, dashed] ($(c1)+(-\PW/2,0)$) rectangle ++(\PW,\PH);
-\foreach \n in {2,3,4,5}{ \draw[stage] ($(c\n)+(-\PW/2,0)$) rectangle ++(\PW,\PH); }
-
-% 1. evidential map (offline)
-\node[ttl] at ($(c1)+(0,\PH-0.07)$) {Evidential map};
-\node[inner sep=0pt] (im1) at ($(c1)+(0,1.84)$)
-  {\includegraphics[width=\IW cm,height=\IH cm,keepaspectratio]{fig1_blocks/panel_map.png}};
-\node[tag] at (im1.north west) {offline};
-\node[eqn] at ($(c1)+(0,0.08)$)
-  {$\mathcal{G}_i=(\bm\mu_i,\bm\Sigma_i,\mathbf{b}_i,\tilde u_i)$};
-% vacuity key on the image
+\node[lab] at (2.26, 5.68) {mapping frames};
+\draw[flow, line width=1.1pt] (2.26,5.52) -- (2.26,5.22);
+\node[lab, anchor=east] at (2.16,5.37) {fit + distil};
+% semantic 3DGS + EDL head
+\node[ttl, color=ink, font=\scriptsize\bfseries] at (2.26, 5.17) {Semantic 3DGS + EDL head};
+\node[inner sep=0pt, draw=ink!40, line width=0.3pt] (osem) at (2.26, 4.13)
+  {\includegraphics[width=4.25cm,height=1.55cm,keepaspectratio]{fig1_blocks/panel_sem.png}};
+\node[lab] at (2.26, 3.20) {opinion $(\mathbf{b},u)$ per Gaussian};
+\draw[flow, line width=1.1pt] (2.26,3.02) -- (2.26,2.60);
+\node[lab, anchor=east] at (2.16,2.80) {DST fusion};
+\node[lab, anchor=west] at (2.36,2.80) {$\tilde u_i{=}\min(1,u_i{+}\bar\eta_i)$};
+% evidential map
+\node[ttl, color=ink, font=\scriptsize\bfseries] at (2.26, 2.58) {Evidential map $\mathcal{M}{=}\{\mathcal{G}_i\}$};
+\node[inner sep=0pt, draw=ink!40, line width=0.3pt] (omap) at (2.26, 1.47)
+  {\includegraphics[width=4.25cm,height=1.62cm,keepaspectratio]{fig1_blocks/panel_map.png}};
 \shade[left color=uLow, right color=uHigh, middle color=uMid]
-  ($(im1.south east)+(-1.12,0.10)$) rectangle ++(0.80,0.11);
-\node[font=\scriptsize\bfseries\color{white}, anchor=east] at ($(im1.south east)+(-1.15,0.155)$) {$\tilde u$};
+  ($(omap.south east)+(-1.05,0.10)$) rectangle ++(0.82,0.11);
+\node[font=\scriptsize\bfseries\color{white}, anchor=east] at ($(omap.south east)+(-1.08,0.155)$) {$\tilde u$};
+\node[eqn] at (2.26, 0.06) {$\mathcal{G}_i=(\bm\mu_i,\bm\Sigma_i,f_i,\mathbf{p}_i,\tilde u_i)$};
 
-% 2. evidential query
-\node[ttl] at ($(c2)+(0,\PH-0.07)$) {Evidential query};
-\node[inner sep=0pt] (im2) at ($(c2)+(0,1.84)$)
+% ===================================================== COARSE row (left -> right)
+\foreach \x in {\cA,\cB,\cC}{ \draw[blk=poseC] (\x,\rC) rectangle ++(\BW,\RH); }
+% B1 query encoding
+\node[ttl, color=poseC] at ($(A)+(0,\rC+\RH-0.07)$) {Evidential query encoding};
+\node[inner sep=0pt] (qimg) at ($(A)+(0,\rC+1.78)$)
   {\includegraphics[width=\IW cm,height=\IH cm,keepaspectratio]{fig4/a_query.png}};
-\node[eqn] at ($(c2)+(0,0.08)$) {$\mathcal{Q}_j=(\mathbf{x}_j,\mathbf{b}^q_j,u^q_j)$};
-
-% 3. vacuity-gated matching -> coarse hypotheses
-\node[ttl] at ($(c3)+(0,\PH-0.07)$) {Gated matching};
-\node[inner sep=0pt] (im3) at ($(c3)+(0,1.84)$)
+\node[tag] at (qimg.north west) {query $I_q$};
+\node[eqn] at ($(A)+(0,\rC+0.07)$) {$\mathcal{Q}_j=(\mathbf{x}_j,a_j,f^q_j,\mathbf{p}^q_j,u^q_j)$};
+% B2 gated matching
+\node[ttl, color=poseC] at ($(B)+(0,\rC+\RH-0.07)$) {Vacuity-gated matching};
+\node[inner sep=0pt] (mimg) at ($(B)+(0,\rC+1.78)$)
   {\includegraphics[width=\IW cm,height=\IH cm,keepaspectratio]{fig4/a_init.png}};
-\node[tag] at (im3.north west) {render at $T^0_k$};
-\node[eqn] at ($(c3)+(0,0.08)$) {$w_{ij}=e^{-\lambda_u(\tilde u_i+u^q_j)}$};
+\node[tag] at (mimg.north west) {render at $T^0_k$};
+\node[eqn] at ($(B)+(0,\rC+0.07)$) {gate $\exp\!\big(\!-\lambda_u(u^G_i+u^q_j)\big)$};
+% B3 hypotheses: schematic (hypothesis poses are not stored per query)
+\node[ttl, color=poseC] at ($(C)+(0,\rC+\RH-0.07)$) {Top-$K$ pose hypotheses};
+\begin{scope}[shift={($(C)+(-1.35,\rC+1.10)$)}]
+  \foreach \dx/\op/\s in {0/1.00/1.00, 1.00/0.62/0.90, 1.90/0.34/0.80}{
+    \begin{scope}[shift={(\dx,0)}, scale=\s, opacity=\op]
+      \fill[poseC!22] (0,1.35) -- (0,0.20) -- (0.95,0.78) -- cycle;
+      \draw[poseC, line width=0.9pt, line join=round] (0,1.35) -- (0,0.20) -- (0.95,0.78) -- cycle;
+      \fill[poseC] (0.95,0.78) circle (1.4pt);
+    \end{scope}
+  }
+  \node[font=\scriptsize\color{poseC!80!ink}] at (0.45,-0.12) {$\tilde\pi_1$};
+  \node[font=\scriptsize\color{poseC!60}] at (1.45,-0.12) {$\tilde\pi_2$};
+  \node[font=\scriptsize\color{poseC!40}] at (2.30,-0.12) {$\tilde\pi_3$};
+\end{scope}
+\node[eqn] at ($(C)+(0,\rC+0.07)$) {$\{(T^0_k,\tilde\pi_k)\}_{k=1}^{K}$};
+\draw[flow] (\cA+\BW+0.03, \rC+1.78) -- (\cB-0.03, \rC+1.78);
+\draw[flow] (\cB+\BW+0.03, \rC+1.78) -- (\cC-0.03, \rC+1.78);
 
-% 4. vacuity-weighted refinement: rendered vacuity -> per-pixel weight
-\node[ttl] at ($(c4)+(0,\PH-0.07)$) {Weighted refinement};
-\node[inner sep=0pt] (im4a) at ($(c4)+(-0.78,2.05)$)
-  {\includegraphics[width=1.48cm]{fig4/a_vacuity.png}};
-\node[inner sep=0pt] (im4b) at ($(c4)+(0.78,2.05)$)
-  {\includegraphics[width=1.48cm]{fig4/a_weight.png}};
-\node[tag] at (im4a.north west) {$U_r$};
-\node[tag] at (im4b.north west) {$w$};
-\draw[->, line width=0.8pt, draw=ink!70] ($(im4a.east)+(-0.06,0)$) -- ($(im4b.west)+(0.06,0)$);
-\node[font=\footnotesize\color{ink}] at ($(c4)+(0,1.15)$) {$w=e^{-\gamma U_r}$};
-\node[eqn] at ($(c4)+(0,0.08)$)
-  {$\hat{\bm\xi}\!=\!\arg\min_{\bm\xi}\!\textstyle\sum_{\mathbf{x}}\! w\,\rho(I_q{-}\hat I_{\bm\xi})$};
+% ===================================================== FINE row (right -> left)
+\foreach \x in {\cB,\cC}{ \draw[blk=fineC] (\x,\rF) rectangle ++(\BW,\RH); }
+\draw[blk=poseC, line width=1.0pt] (\cA,\rF) rectangle ++(\BW,\RH);
+% C1 matching correction: schematic of gated correspondences
+\node[ttl, color=fineC] at ($(C)+(0,\rF+\RH-0.07)$) {Matching correction};
+\begin{scope}[shift={($(C)+(-1.62,\rF+0.98)$)}]
+  \node[inner sep=0pt, draw=ink!50, line width=0.4pt, anchor=south west] (cq) at (0,0)
+    {\includegraphics[width=1.38cm]{fig4/a_query.png}};
+  \node[inner sep=0pt, draw=ink!50, line width=0.4pt, anchor=south west] (cr) at (1.86,0)
+    {\includegraphics[width=1.38cm]{fig4/a_init.png}};
+  \foreach \ya/\yb in {0.78/0.80, 0.52/0.47, 0.25/0.30}{
+    \draw[uLow, line width=0.9pt] (1.38,\ya) -- (1.86,\yb);
+  }
+  \draw[uHigh, line width=0.9pt, dash pattern=on 2pt off 1.5pt] (1.38,0.12) -- (1.86,0.66);
+  \node[font=\scriptsize\color{uLow!80!ink}, anchor=south] at (1.62,1.06) {kept};
+  \node[font=\scriptsize\color{uHigh}, anchor=north] at (1.62,-0.02) {gated out};
+\end{scope}
+\node[eqn] at ($(C)+(0,\rF+0.07)$) {$\big[\bar U_r(\mathbf{x}^r_k)\le u_{\max}\big]\,\rho(\cdot)\ \to$ PnP};
+% C2 vacuity-weighted refinement
+\node[ttl, color=fineC] at ($(B)+(0,\rF+\RH-0.07)$) {Vacuity-weighted refinement};
+\node[inner sep=0pt] (ur) at ($(B)+(-0.99,\rF+1.95)$)
+  {\includegraphics[width=1.88cm]{fig4/a_vacuity.png}};
+\node[inner sep=0pt] (ww) at ($(B)+(0.99,\rF+1.95)$)
+  {\includegraphics[width=1.88cm]{fig4/a_weight.png}};
+\node[tag] at (ur.north west) {$U_r$};
+\node[tag] at (ww.north west) {$w$};
+\draw[->, line width=0.8pt, draw=ink!70] ($(ur.east)+(-0.05,0)$) -- ($(ww.west)+(0.05,0)$);
+\node[font=\footnotesize] at ($(B)+(0,\rF+0.90)$) {$w=e^{-\gamma U_r}$};
+\node[eqn] at ($(B)+(0,\rF+0.07)$) {$E(\bm\xi)=\textstyle\sum_{\mathbf{x}} w\,\|I_q-I_r(\bm\xi)\|^2$};
+% C3 calibrated posterior
+\node[ttl, color=poseC] at ($(A)+(0,\rF+\RH-0.07)$) {Calibrated pose posterior};
+\node[inner sep=0pt] (pimg) at ($(A)+(0,\rF+1.98)$)
+  {\includegraphics[width=\IW cm,height=1.72cm,keepaspectratio]{fig1_blocks/panel_post.png}};
+\node[eqn] at ($(A)+(0,\rF+0.05)$)
+  {$\bm\Sigma_{\bm\xi}\approx\tau\hat\sigma^2(J^\top WJ)^{-1}$\\[-0.4mm] $p(T|I_q,\mathcal{M})\to$ EKF};
+\draw[flow] (\cC-0.03, \rF+1.86) -- (\cB+\BW+0.03, \rF+1.86);
+\node[lab, anchor=south] at ($(\cB+\BW, \rF+1.86)!0.5!(\cC, \rF+1.86)$) {$T'_k$};
+\draw[flow] (\cB-0.03, \rF+1.86) -- (\cA+\BW+0.03, \rF+1.86);
+\node[lab, anchor=south] at ($(\cA+\BW, \rF+1.86)!0.5!(\cB, \rF+1.86)$) {$\bm\xi^\star_k$};
 
-% 5. calibrated pose posterior, third-person view of the map
-\node[ttl, color=poseC] at ($(c5)+(0,\PH-0.07)$) {\color{poseC}Calibrated posterior};
-\node[inner sep=0pt] (im5) at ($(c5)+(0,1.84)$)
-  {\includegraphics[width=\IW cm,height=\IH cm,keepaspectratio]{fig1_blocks/panel_post.png}};
-\node[eqn] at ($(c5)+(0,0.08)$) {$p(T|I_q,\mathcal{M})\!\approx\!\mathcal{N}(\hat T,\tau\bm\Sigma)$};
+% ===================================================== connections
+% coarse -> fine turn: hypotheses down into the correction
+\draw[flow] ($(C)+(0.95,\rC-0.03)$) -- ($(C)+(0.95,\rF+\RH+0.03)$);
+% shared EDL head
+\draw[bus, dashed] (osem.east) -- (\cA-0.03, 4.13 |- osem.east);
+\node[lab, anchor=south, font=\scriptsize\color{ink!70}] at (4.72, 4.25) {shared};
+% the map feeds every online stage through one bus in the channel
+\def\by{3.70}
+\draw[line width=0.9pt, draw=ink!65] (omap.east) -- (4.72, 1.47) -- (4.72,\by) -- ($(C)+(-0.70,\by)$);
+\node[lab, fill=white, inner sep=1pt] at (5.62,\by) {$\mathcal{M}$};
+\draw[bus] ($(B)+(-0.30,\by)$) -- ($(B)+(-0.30,\rC-0.03)$);
+\draw[bus] ($(B)+(0.30,\by)$) -- ($(B)+(0.30,\rF+\RH+0.03)$);
+\draw[bus] ($(C)+(-0.70,\by)$) -- ($(C)+(-0.70,\rF+\RH+0.03)$);
 
-% ---------------------------------------------------------------- flow
-\foreach \a/\b in {1/2, 2/3, 3/4, 4/5}{
-  \draw[flow] ($(c\a)+(\PW/2+0.03,1.84)$) -- ($(c\b)+(-\PW/2-0.03,1.84)$);
+% ===================================================== evidential channel
+\def\ry{-0.46}
+\draw[rail] (2.26,0) -- (2.26,\ry) -- ($(C)+(0.70,\ry)$);
+\foreach \P/\lab in {A/calibrate ($\tau$), B/weight ($U_r$), C/gate ($\bar U_r\!\le\!u_{\max}$)}{
+  \draw[inj] ($(\P)+(0.70,\ry)$) -- ($(\P)+(0.70,-0.02)$);
+  \node[font=\scriptsize\bfseries\color{outLn!80!ink}, anchor=south east] at ($(\P)+(0.62,\ry+0.02)$) {\lab};
 }
-
-% ---------------------------------------------------------- vacuity rail
-\def\ry{-0.42}
-\draw[rail] ($(c1)+(0,0)$) -- ($(c1)+(0,\ry)$) -- ($(c5)+(0.55,\ry)$);
-\foreach \n/\lab in {3/gate, 4/weight, 5/calibrate}{
-  \draw[inj] ($(c\n)+(-0.55,\ry)$) -- ($(c\n)+(-0.55,-0.02)$);
-  \node[font=\scriptsize\bfseries\color{outLn!85!ink}, anchor=west] at ($(c\n)+(-0.50,\ry+0.20)$) {\lab};
-}
-\node[font=\scriptsize\color{outLn!80!ink}, fill=white, inner sep=1.5pt]
-  at ($(c2)+(0,\ry)$) {vacuity $\tilde u$: built once offline, used at every stage};
+\node[font=\scriptsize\color{outLn!80!ink}, anchor=north west]
+  at (2.33,\ry-0.04) {one evidential channel: built once, never dropped};
 \end{tikzpicture}
 \end{document}
