@@ -65,7 +65,8 @@ for i, (key, lab, im) in enumerate(CELLS):
 
 
 RX, RW = 3.33, 3.79
-ax = fig.add_axes([RX/FW, 0.055/FH, RW/FW, 2.46/FH])
+TOP = Y0 + 2*PH + 0.175          # top of the left image grid
+ax = fig.add_axes([RX/FW, Y0/FH, RW/FW, (TOP-Y0)/FH])
 ax.imshow(bg, extent=[0, int(z["W"]), int(z["H"]), 0], interpolation="bilinear")
 ax.set_xlim(0, int(z["W"])); ax.set_ylim(int(z["H"]), 0)
 ax.set_xticks([]); ax.set_yticks([])
@@ -120,11 +121,11 @@ lg = ax.legend(loc="lower left", fontsize=7.4, framealpha=0.62, facecolor="black
                edgecolor="none", labelcolor="white", handletextpad=0.4,
                borderpad=0.33, labelspacing=0.30)
 lg.set_zorder(20)
-cbb = fig.add_axes([(RX+RW-0.70)/FW, 0.14/FH, 0.60/FW, 1.00/FH])
+cbb = fig.add_axes([(RX+RW-0.70)/FW, (Y0+0.085)/FH, 0.60/FW, 1.00/FH])
 cbb.set_facecolor("black"); cbb.patch.set_alpha(0.55); cbb.set_xticks([]); cbb.set_yticks([])
 for s in cbb.spines.values(): s.set_visible(False)
 cbb.set_zorder(18)
-cax = fig.add_axes([(RX+RW-0.54)/FW, 0.21/FH, 0.08/FW, 0.86/FH]); cax.set_zorder(19)
+cax = fig.add_axes([(RX+RW-0.54)/FW, (Y0+0.155)/FH, 0.08/FW, 0.86/FH]); cax.set_zorder(19)
 cb = ColorbarBase(cax, cmap=cmap, norm=norm, orientation="vertical")
 cb.set_label(r"reported $\sigma_t$ [cm]", fontsize=7.0, color="white", labelpad=2)
 cb.ax.tick_params(labelsize=6.5, colors="white", width=0.5, length=2)

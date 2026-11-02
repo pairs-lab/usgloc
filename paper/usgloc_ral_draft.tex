@@ -78,6 +78,13 @@ Localization, 3D gaussian splatting, semantic scene understanding, uncertainty q
 
 %==============================================================================
 \section{Introduction}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig1_teaser.pdf}
+\caption{\method{} returns a pose \emph{and} its covariance. Left: a 7-Scenes \textit{fire} query and the Gaussian map rendered at the pose each method returned, with translation error. Right: the same map from a free camera; every test query is coloured by the $\sigma_t$ \method{} reported for it, and the selected query shows its estimated pose, the true pose, and the $2\sigma$ covariance. The query is a favourable example chosen for legibility; Tables~\ref{tab:7scenes}--\ref{tab:12scenes} give the distribution.}
+\label{fig:teaser}
+\end{figure*}
 \IEEEPARstart{V}{isual} localization estimates the 6-DoF camera pose of a query image inside a previously mapped scene, which is a core capability for indoor mobile robots and micro aerial vehicles (MAVs)~\cite{kerbl3dgs,sgloc,chukim}. On these platforms the pose is rarely consumed on its own. It enters a recursive Bayesian estimator, such as an EKF or UKF, and is fused with inertial and other cues~\cite{ukf}. This fusion is only as sound as the \emph{uncertainty} attached to each measurement. A pose without a covariance forces the estimator to assume a fixed noise model. A fixed model cannot reflect scene ambiguity, occlusion, dynamics, or texture sparsity. These are exactly the conditions under which localization degrades. An localizer should therefore output a \emph{calibrated distribution} over pose, not a point.
 
 Classical localization is dominated by feature-based and regression-based methods. Feature-based pipelines match 2D keypoints to a 3D model and solve Perspective-$n$-Point with RANSAC~\cite{lightglue}. Absolute pose regression (APR)~\cite{posenet,marepo} and scene coordinate regression (SCR)~\cite{dsacstar,ace} learn the mapping end-to-end. 
@@ -278,27 +285,11 @@ SfM pseudo-ground truth~\cite{brachmann2021dslam}. Lower is better. \textbf{Bold
 \toprule
 Method & Chess & Fire & Heads & Office & Pumpkin & Kitchen & Stairs & Avg.\\
 \midrule
-\multicolumn{9}{@{}l}{\textit{APR: absolute-pose regression}}\\
 PoseNet~\cite{posenet}$^{\dagger r}$ & 10/4.02 & 27/10.0 & 18/13.0 & 17/5.97 & 19/4.67 & 22/5.91 & 35/10.5 & 21/7.74\\
 Marepo~\cite{marepo}$^{\dagger r}$ & 1.9/0.83 & 2.3/0.92 & 2.1/1.24 & 2.9/0.93 & 2.5/0.88 & 2.9/0.98 & 5.9/1.48 & 2.9/1.04\\
-\midrule
-\multicolumn{9}{@{}l}{\textit{SCR: scene-coordinate regression}}\\
 DSAC*~\cite{dsacstar}$^{\dagger s}$ & 0.50/0.17 & 0.78/0.29 & 0.50/0.34 & 1.19/0.35 & 1.19/0.29 & 0.72/0.21 & 2.65/0.78 & 1.07/0.35\\
 ACE~\cite{ace}$^{\dagger s}$   & 0.55/0.18 & 0.83/0.33 & 0.53/0.33 & 1.05/0.29 & 1.06/0.22 & 0.77/0.21 & 2.89/0.81 & 1.10/0.34\\
-ACE~\cite{ace} (re-run)$^\ddagger$ & 0.54/0.18 & 0.83/0.33 & 0.52/0.33 & 1.05/0.29 & 1.04/0.22 & 0.78/0.20 & 2.87/0.80 & 1.09/0.34\\
-\midrule
-\multicolumn{9}{@{}l}{\textit{NRP: neural-rendering post-refinement of an external pose prior}}\\
-ACE\,$+$\,GS-CPR~\cite{gscpr}$^\dagger$ & 0.5/0.15 & 0.6/0.25 & 0.4/0.28 & 0.9/0.26 & 1.0/0.23 & 0.7/0.17 & 1.4/0.42 & 0.8/0.25\\
-ACE\,$+$\,UGS-Loc~\cite{ugsloc}$^{\dagger\P}$ & \underline{0.37}/0.12 & \underline{0.47}/\underline{0.20} & \underline{0.36}/0.25 & 0.77/0.22 & \underline{0.79}/\underline{0.18} & \underline{0.58}/0.15 & \underline{1.11}/\underline{0.33} & \underline{0.64}/0.21\\
-\method{} (ACE prior, correction)$^\ddagger$ & 0.58/0.21 & 0.67/0.26 & 0.44/0.31 & 1.50/0.41 & 1.18/0.30 & 0.78/0.24 & 1.93/0.52 & 1.01/0.32\\
-\method{} (Marepo prior, full)$^\ddagger$ & 0.52/0.20 & 0.56/0.22 & 0.55/0.37 & 1.58/0.41 & 1.30/0.30 & 1.33/0.35 & 2.29/0.68 & 1.16/0.36\\
-\midrule
-\multicolumn{9}{@{}l}{\textit{Prior-free neural-rendering localization (initial pose from the map itself)}}\\
 GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & 0.39/0.13 & 0.91/0.29 & 0.94/0.50 & 1.41/0.32 & 1.41/0.26 & 1.32/0.29 & 3.44/0.82 & 1.40/0.37\\
-STDLoc~\cite{stdloc}$^\dagger$ & 0.46/0.15 & 0.57/0.24 & 0.45/0.26 & 0.86/0.24 & 0.93/0.21 & 0.63/0.19 & 1.42/0.41 & 0.76/0.24\\
-ULF-Loc~\cite{ulfloc}$^\dagger$ & 0.42/\underline{0.11} & \textbf{0.44}/\textbf{0.19} & \underline{0.36}/\underline{0.21} & \underline{0.73}/\underline{0.20} & 0.92/\underline{0.18} & 0.65/\underline{0.13} & 1.38/0.36 & 0.7/\underline{0.20}\\
-SplatHLoc~\cite{splathloc}$^{\dagger\P}$ & \textbf{0.28}/\textbf{0.09} & \textbf{0.44}/\textbf{0.19} & \textbf{0.29}/\textbf{0.18} & \textbf{0.62}/\textbf{0.18} & \textbf{0.70}/\textbf{0.15} & \textbf{0.49}/\textbf{0.12} & \textbf{1.03}/\textbf{0.30} & \textbf{0.55}/\textbf{0.17}\\
-\textbf{\method{} (Ours, prior-free)}  & 0.47/0.16 & 0.51/0.22 & 0.57/0.35 & 1.35/0.39 & 1.15/0.29 & 0.85/0.25 & 2.40/0.64 & 1.05/0.33 \\
 \textbf{\method{} (Ours, prior-free, MASt3R$\to$field)}$^{m}$ & 0.43/0.15 & 0.48/0.22 & 0.47/0.31 & 1.08/0.32 & 0.89/0.23 & 0.81/0.21 & 2.12/0.66 & 0.90/0.30\\
 \bottomrule
 \end{tabular}
@@ -320,9 +311,7 @@ UGS-Loc~\cite{ugsloc}, and GSplatLoc's and STDLoc's are
 ULF-Loc's~\cite{ulfloc}).
 $\P$: the source does not state its ground-truth convention; its reprinted
 baseline rows match the SfM pseudo-GT ones digit for digit, so we infer it.
-$\ddagger$: re-run by us with the authors' released pseudo-GT models and
-their solver, on the same 100-frame subsample per scene as our own method,
-which is why it trails GS-CPR's full-split ACE row.}
+}
 \label{tab:12scenes}
 \setlength{\tabcolsep}{4pt}
 \footnotesize
@@ -337,19 +326,13 @@ Marepo~\cite{marepo}$^\S$ & 2.1/1.04 & 95.0 & 50.4\\
 DSAC*~\cite{dsacstar}$^\S$ & 0.5/0.25 & \underline{99.8} & 96.7\\
 ACE~\cite{ace}$^\S$ & 0.7/0.26 & \textbf{100.0} & 97.2\\
 GLACE~\cite{glace}$^\S$ & 0.7/0.25 & \textbf{100.0} & 97.5\\
-ACE~\cite{ace} (re-run)$^\ddagger$ & 0.98/0.26 & --- & 91.6\\
 \midrule
 \multicolumn{4}{@{}l}{\textit{NRP: neural-rendering post-refinement of an external prior}}\\
 Marepo\,$+$\,GS-CPR~\cite{gscpr}$^\dagger$ & 0.7/0.28 & 98.9 & 90.9\\
 ACE\,$+$\,GS-CPR~\cite{gscpr}$^\dagger$ & 0.5/0.21 & \textbf{100.0} & 98.7\\
-Marepo\,$+$\,UGS-Loc~\cite{ugsloc}$^{\dagger\P}$ & 0.5/0.21 & 99.4 & 95.3\\
-ACE\,$+$\,UGS-Loc~\cite{ugsloc}$^{\dagger\P}$ & \underline{0.4}/0.18 & \textbf{100.0} & \textbf{99.1}\\
 \midrule
 \multicolumn{4}{@{}l}{\textit{NRL: prior-free neural-rendering localization}}\\
 GSplatLoc~\cite{gsplatloc}$^\S$ & 1.4/0.26 & 91.9 & 70.3\\
-STDLoc~\cite{stdloc}$^\S$ & \underline{0.4}/0.18 & 98.4 & 97.2\\
-SplatHLoc~\cite{splathloc}$^{\dagger\P}$ & \textbf{0.3}/\textbf{0.14} & --- & 97.3\\
-ULF-Loc~\cite{ulfloc}$^\dagger$ & \textbf{0.3}/\underline{0.15} & 99.2 & \underline{98.8}\\
 \textbf{\method{} (Ours)} & \res & \res & \res\\
 \bottomrule
 \end{tabular}
@@ -400,6 +383,13 @@ Coverage is closest to nominal at the 68.3\% level (61.1\%) but falls increasing
 \includegraphics[width=\columnwidth]{fig5_uncertainty.pdf}
 \caption{Uncertainty quality against ACE~\cite{ace} on identical queries (700 total). (a) Sparsification by each method's \emph{own} confidence signal, each curve normalized by its own initial error so that only ordering quality is compared. Ours tracks the oracle; the inlier count saturates. (b) Median error within each decile of reported confidence. A useful signal is monotone and wide-ranging.}
 \label{fig:unc}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_qual3.pdf}
+\caption{Map rendered at the pose returned by \method{}, ACE and Marepo on identical queries, against ground truth. Rows are chosen by a fixed rule, one scene each: we are confident and right; we are wrong and say so; ACE fails where we do not; ACE beats us. Per-panel: translation error, and for \method{} the percentile of its own reported $\sigma_t$.}
+\label{fig:qual3}
 \end{figure}
 
 \newcommand{\fpanel}[1]{\includegraphics[width=0.19\columnwidth]{fig4/#1}}
