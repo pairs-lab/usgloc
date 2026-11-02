@@ -20,7 +20,7 @@ from make_prior_table import GSCPR, RUNS, SC, avg, cell, med  # noqa: E402
 
 ROOT = Path("/home/thanhnc/gauss_ws/src/usgloc")
 RAL = ROOT / "paper/usgloc_ral_draft.tex"
-FULL = ROOT / "paper/usgloc_full.tex"
+FULL = ROOT / "paper/usgloc_supplementary.tex"
 B, E = "% BEGIN AUTO prior-table\n", "% END AUTO prior-table\n"
 
 

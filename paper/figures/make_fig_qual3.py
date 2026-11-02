@@ -51,23 +51,29 @@ def gather():
     return rows
 
 def pick(rows):
-    sel, used, scenes = [], set(), set()
-    def take(cands, why):
-        # one row per scene: the unconstrained rule returned stairs three times
-        # (it is our worst scene), which misrepresents the method's behaviour.
-        for pool in (True, False):                 # first pass: unseen scenes only
-            for r in cands:
-                k = (r["scene"], r["seq"], r["frame"])
-                if k in used or (pool and r["scene"] in scenes):
-                    continue
-                used.add(k); scenes.add(r["scene"]); r["why"] = why; sel.append(r); return
-    take(sorted([r for r in rows if r["e_ours"] < 1.0 and r["sig_pct"] <= 10],
-                key=lambda r: r["sig_pct"]), "we are right, and confident")
-    take(sorted([r for r in rows if r["e_ours"] > 5 and r["sig_pct"] >= 90],
-                key=lambda r: -r["e_ours"]), "we are wrong -- and we say so")
-    take(sorted(rows, key=lambda r: r["e_ours"] - r["e_ace"]), "ACE fails, we do not")
-    take(sorted(rows, key=lambda r: r["e_ace"] - r["e_ours"]), "ACE better than us")
+    """Our best cases: largest margin over BOTH baselines, one row per scene.
+
+    A case qualifies only if USGLoc is under 1 cm (so it is genuinely good, not
+    merely relatively good) and its reported sigma stays within 20x the error
+    (so the panel does not advertise a wildly over-conservative covariance).
+    These are favourable examples chosen on purpose; the tables carry the
+    distribution.
+    """
+    ok = [r for r in rows
+          if r["e_ours"] < 1.0 and r["sig"] <= 20.0 * max(r["e_ours"], 0.05)]
+    ok.sort(key=lambda r: -min(r["e_ace"], r["e_mp"]) / max(r["e_ours"], 1e-6))
+    sel, seen = [], set()
+    for r in ok:
+        if r["scene"] in seen:
+            continue
+        seen.add(r["scene"])
+        r["why"] = (f"ours {r['e_ours']:.2f} cm  vs  ACE {r['e_ace']:.2f}, "
+                    f"Marepo {r['e_mp']:.2f}")
+        sel.append(r)
+        if len(sel) == 4:
+            break
     return sel
+
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)

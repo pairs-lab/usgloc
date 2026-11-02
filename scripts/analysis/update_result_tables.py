@@ -23,7 +23,7 @@ from make_tables import fix_record, stats  # noqa: E402
 
 ROOT = "/home/thanhnc/gauss_ws/src/usgloc"
 RAL = f"{ROOT}/paper/usgloc_ral_draft.tex"
-FULL = f"{ROOT}/paper/usgloc_full.tex"
+FULL = f"{ROOT}/paper/usgloc_supplementary.tex"
 SC = ["chess", "fire", "heads", "office", "pumpkin", "redkitchen", "stairs"]
 ACE = "results/ace_dsacstar_100"
 # train-side floors of the selected maps (tab:finetune, bold column)
