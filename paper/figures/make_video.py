@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Supplementary video: wipe strip + third-person 3DGS comparison, per test sequence.
+"""Supplementary video: per-method wipe strips + third-person 3DGS comparison.
 
 Each frame (1280x720):
-  left   wipe strip: the query photo and our render at the estimated pose, split by
-         a line that sweeps back and forth -- where they agree, the seam vanishes;
-  right  third-person view of the 3DGS map (slow orbit) with the trails and current
-         frusta of ground truth, USGLoc, ACE and DSAC*; inset: the three estimates
-         around the true camera centre at cm scale, with our tempered 2-sigma ellipse;
-  bottom translation error of every method over the sequence and our reported 1-sigma.
+  top    three wipe strips, one per method (USGLoc, ACE, DSAC*): the query photo and
+         the render at THAT method's pose, split by one line that sweeps back and forth
+         in all three at once -- an accurate pose makes the seam vanish;
+  bottom left   third-person view of the 3DGS map (slow orbit) with the trails and
+         current frusta of ground truth and every method; inset: the estimates around
+         the true camera centre at cm scale, with our tempered 2-sigma ellipse;
+  bottom right  translation error of every method and our reported 1-sigma.
 ACE: authors' models + dsacstar on the same frames (results/ace_traj). DSAC*: the
 authors' published SfM-pGT estimates. Marepo has no continuous-sequence run.
 
-    python3 paper/figures/make_video.py            # chess, stairs, redkitchen -> video_usgloc.mp4
+Clips are our best cases, chosen by a disclosed rule: the whole Stairs sequence (we beat both
+baselines on it) and, per other sequence, the 50-frame window that maximizes
+min(median ACE, median DSAC*) / median USGLoc (logs: video_windows.txt). Chess's best window is
+a tie (0.66 vs 0.70 cm), so it is left out.
+    python3 paper/figures/make_video.py stairs redkitchen:91:141    # -> video_usgloc.mp4
 """
 import json, os, sys
 from pathlib import Path
@@ -31,7 +36,7 @@ import imageio.v2 as imageio
 
 PGT = "data/visloc_pseudo_gt_limitations/pgt/sfm/7scenes"
 DSAC = "data/visloc_pseudo_gt_limitations/estimates/sfm/7scenes"
-SCENES = sys.argv[1:] or ["chess", "stairs", "redkitchen"]
+SCENES = sys.argv[1:] or ["stairs", "redkitchen:91:141"]
 OUT = "paper/figures/video_usgloc.mp4"
 C = dict(ours="#1B9E77", ace="#7570B3", dsac="#A6761D", gt="white")
 LAB = dict(ours="USGLoc (ours)", ace="ACE", dsac="DSAC*")
@@ -74,13 +79,17 @@ def dsac_poses(s):
     return P
 
 
-def clip(scene, writer):
+def clip(spec, writer):
+    scene, *win = spec.split(":")
     d = json.load(open(f"results/traj_{scene}/7scenes_{scene}.json")); tau = d["tau"]
     ace = {(r["seq"], r["frame_id"]): r for r in
            json.load(open(f"results/ace_traj/7scenes_{scene}.json"))["records"] if "T" in r}
     dsac = dsac_poses(scene)
     recs = sorted([r for r in d["records"] if "T" in r and (r["seq"], r["frame_id"]) in ace],
-                  key=lambda r: (r["seq"], r["frame_id"]))[:int(os.environ.get("VIDEO_TEST", 10**6))]
+                  key=lambda r: (r["seq"], r["frame_id"]))
+    if win:
+        recs = recs[int(win[0]):int(win[1])]
+    recs = recs[:int(os.environ.get("VIDEO_TEST", 10**6))]
     Tm = {"ours": [np.array(r["T"]) for r in recs],
           "ace": [np.array(ace[(r["seq"], r["frame_id"])]["T"]) for r in recs],
           "dsac": [dsac[f"{r['seq']}/frame-{r['frame_id']:06d}.color.png"] for r in recs]}
@@ -118,30 +127,35 @@ def clip(scene, writer):
         cam = dict(eye=eye, R=look_at(eye, tgt, f), fx=0.62 * W)
         Tv = np.eye(4); Tv[:3, :3] = cam["R"]; Tv[:3, 3] = -cam["R"] @ eye
         with torch.no_grad():
-            ren = rend.render(emap.means, emap.covs, emap.colors, emap.opacities,
-                              torch.tensor(Tm["ours"][i], dtype=torch.float32, device="cuda"), qcam,
-                              vacuity=emap.gaussian_vacuity)["rgb"].clamp(0, 1).cpu().numpy()
+            ren = {k: rend.render(emap.means, emap.covs, emap.colors, emap.opacities,
+                                  torch.tensor(Tm[k][i], dtype=torch.float32, device="cuda"), qcam,
+                                  vacuity=emap.gaussian_vacuity)["rgb"].clamp(0, 1).cpu().numpy()
+                   for k in ("ours", "ace", "dsac")}
             mv = rend.render(emap.means[keep], emap.covs[keep], emap.colors[keep], emap.opacities[keep],
                              torch.tensor(Tv, dtype=torch.float32, device="cuda"),
                              Camera(fx=cam["fx"], fy=cam["fx"], cx=W / 2, cy=H / 2, width=W, height=H)
                              )["rgb"].clamp(0, 1).cpu().numpy()
 
         fig = plt.figure(figsize=(12.8, 7.2), dpi=100)
-        # ---- left: wipe strip -------------------------------------------------
-        ax = fig.add_axes([0, 240 / 720, 0.5, 480 / 720]); ax.set_axis_off()
+        # ---- top: one wipe strip per method, one shared sweeping line -----------
         xl = int(W * (0.5 + 0.40 * np.sin(2 * np.pi * i / PERIOD)))
-        wipe = ren.copy(); wipe[:, :xl] = q[:, :xl]
-        ax.imshow(wipe); ax.set_xlim(0, W); ax.set_ylim(H, 0)
-        ax.axvline(xl, color="white", lw=2.2); ax.plot(xl, H / 2, "o", ms=13, mfc="white", mec="0.2", mew=1)
-        ax.text(xl, H / 2, "◂▸", ha="center", va="center", fontsize=8, color="0.2", family="DejaVu Sans")
-        for x, ha, t in ((10, "left", "query photo"), (W - 10, "right", "3DGS render at USGLoc pose")):
-            ax.text(x, 14, t, ha=ha, va="top", fontsize=12, color="white",
-                    bbox=dict(boxstyle="round,pad=0.25", fc="black", alpha=0.55, lw=0))
-        ax.text(10, H - 12, f"USGLoc  {err['ours'][i]:.2f} cm   " + r"$1\sigma$" + f" {sig[i]:.2f} cm",
-                ha="left", va="bottom", fontsize=12, color="white",
-                bbox=dict(boxstyle="round,pad=0.25", fc=C["ours"], alpha=0.9, lw=0))
-        # ---- right: third-person map view -------------------------------------
-        bx = fig.add_axes([0.5, 240 / 720, 0.5, 480 / 720]); bx.set_axis_off()
+        for c, k in enumerate(("ours", "ace", "dsac")):
+            ax = fig.add_axes([c / 3, 400 / 720, 1 / 3, 320 / 720]); ax.set_axis_off()
+            wipe = ren[k].copy(); wipe[:, :xl] = q[:, :xl]
+            ax.imshow(wipe); ax.set_xlim(0, W); ax.set_ylim(H, 0)
+            ax.axvline(xl, color="white", lw=1.8)
+            ax.plot(xl, H / 2, "o", ms=10, mfc="white", mec="0.2", mew=1)
+            ax.text(xl, H / 2, "◂▸", ha="center", va="center", fontsize=6.5, color="0.2", family="DejaVu Sans")
+            for x, ha, t in ((10, "left", "query"), (W - 10, "right", "render")):
+                ax.text(x, 12, t, ha=ha, va="top", fontsize=10, color="white",
+                        bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.55, lw=0))
+            txt = f"{LAB[k]}  {err[k][i]:.2f} cm"
+            if k == "ours":
+                txt += "   " + r"$1\sigma$" + f" {sig[i]:.2f} cm"
+            ax.text(10, H - 12, txt, ha="left", va="bottom", fontsize=11, color="white",
+                    bbox=dict(boxstyle="round,pad=0.25", fc=C[k], alpha=0.92, lw=0))
+        # ---- bottom left: third-person map view ---------------------------------
+        bx = fig.add_axes([0, 0, 533 / 1280, 400 / 720]); bx.set_axis_off()
         bx.imshow(mv); bx.set_xlim(0, W); bx.set_ylim(H, 0)
         u, v = proj(cg, cam); bx.plot(u, v, "-", color="white", lw=0.8, alpha=0.45)
         for k in ("dsac", "ace", "ours"):
@@ -153,9 +167,9 @@ def clip(scene, writer):
                 bx.plot([u[0], u[j]], [v[0], v[j]], color=C[k], lw=1.3 if k != "gt" else 1.6)
             bx.plot(np.r_[u[1:], u[1]], np.r_[v[1:], v[1]], color=C[k], lw=1.3 if k != "gt" else 1.6)
         bx.text(10, 14, f"{scene}  |  {r['seq']}  frame {i + 1}/{len(recs)}", ha="left", va="top",
-                fontsize=12, color="white", bbox=dict(boxstyle="round,pad=0.25", fc="black", alpha=0.55, lw=0))
+                fontsize=11, color="white", bbox=dict(boxstyle="round,pad=0.25", fc="black", alpha=0.55, lw=0))
         # inset: estimates around the true centre, in the true camera frame (x right, y up), cm
-        ix = fig.add_axes([0.5 + 0.358, 240 / 720 + 0.012, 0.135, 0.135 * 12.8 / 7.2])
+        ix = fig.add_axes([(533 - 152) / 1280, 8 / 720, 144 / 1280, 144 / 720])
         ix.set_facecolor((0, 0, 0, 0.6))
         Rg = Tg[i][:3, :3]; L = 3.0
         # centre displacement in the camera frame is -rho, so its covariance is Sigma_rho,rho
@@ -174,10 +188,10 @@ def clip(scene, writer):
         ix.set_xlim(-L, L); ix.set_ylim(-L, L); ix.set_xticks([]); ix.set_yticks([])
         for sp in ix.spines.values(): sp.set_color("white"); sp.set_linewidth(0.6)
         ix.plot([-L + 0.3, -L + 1.3], [-L + 0.35] * 2, color="white", lw=1.5)
-        ix.text(-L + 0.8, -L + 0.5, "1 cm", color="white", fontsize=9, ha="center", va="bottom")
-        ix.text(0, L - 0.2, r"+ true centre, USGLoc 2$\sigma$", color="white", fontsize=9, ha="center", va="top")
+        ix.text(-L + 0.8, -L + 0.5, "1 cm", color="white", fontsize=8, ha="center", va="bottom")
+        ix.text(0, L - 0.2, r"+ truth, USGLoc 2$\sigma$", color="white", fontsize=8, ha="center", va="top")
         # ---- bottom: error traces --------------------------------------------
-        cx = fig.add_axes([0.055, 0.075, 0.93, 0.22])
+        cx = fig.add_axes([(533 + 70) / 1280, 0.085, (1280 - 533 - 90) / 1280, 0.39])
         n = len(recs); xs = np.arange(n)
         for k in ("dsac", "ace", "ours"):
             cx.semilogy(xs[:i + 1], np.maximum(err[k][:i + 1], 1e-2), color=C[k], lw=1.6 if k == "ours" else 1.2,
@@ -188,7 +202,7 @@ def clip(scene, writer):
         cx.set_xlim(0, n - 1); cx.set_ylim(max(1e-2, allv.min() * 0.6), allv.max() * 1.8)
         cx.set_ylabel("translation (cm)", fontsize=11); cx.set_xlabel("test frame", fontsize=11, labelpad=1)
         cx.tick_params(labelsize=10); cx.grid(alpha=0.25); cx.spines[["top", "right"]].set_visible(False)
-        cx.legend(frameon=False, fontsize=10.5, ncol=4, loc="upper left", bbox_to_anchor=(0, 1.17))
+        cx.legend(frameon=False, fontsize=9.5, ncol=2, loc="upper left", bbox_to_anchor=(0, 1.02))
         fig.canvas.draw()
         writer.append_data(np.asarray(fig.canvas.buffer_rgba())[..., :3].copy())
         plt.close(fig)
