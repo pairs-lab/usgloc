@@ -158,7 +158,7 @@ def compose(sel, out="paper/figures/fig_qual3.pdf"):
     plt.rcParams.update({"font.family": "serif",
                          "font.serif": ["Nimbus Roman", "Liberation Serif", "STIXGeneral"],
                          "mathtext.fontset": "stix", "pdf.fonttype": 42})
-    C = dict(T_ours="#1B9E77", T_ace="#7570B3", T_mp="#6E6E6E")   # = Fig. 4 colours
+    C = dict(T_ours="#1B9E77", T_ace="#7570B3", T_mp="#555555")   # = Fig. 4 colours
     cols = [("query", "query"), ("T_gt", "ground truth"), ("T_ace", "ACE"),
             ("T_mp", "Marepo"), ("T_ours", r"$\mathbf{USGLoc}$ (ours)"), ("mapview", "3DGS map view")]
     W, L, R, TOP, BOT = 7.16, 0.15, 0.01, 0.17, 0.01      # inches; W = IEEE text width

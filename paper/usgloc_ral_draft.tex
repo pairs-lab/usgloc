@@ -284,7 +284,7 @@ Accuracy is not uniform, and the cause is specific. Per-scene error is bounded b
 
 \begin{table*}[t]
 \centering
-\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better. $\dagger$: as reported by the authors. $\dagger r$: retrained under the SfM pseudo-GT, PoseNet by NeFeS~\cite{nefes} and Marepo by GS-CPR~\cite{gscpr}. $\dagger s$: medians as printed in STDLoc~\cite{stdloc}, whose sources report only success rates. $m$: our correction run as a MASt3R~\cite{mast3r}$\,\to\,$descriptor-field cascade rather than LoFTR throughout; median of 3 seeds, 100 test queries per scene, one configuration for every scene.}
+\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better; best in bold, second underlined. $\dagger$: as reported by the authors. $\dagger r$: retrained under the SfM pseudo-GT, PoseNet by NeFeS~\cite{nefes} and Marepo by GS-CPR~\cite{gscpr}. $\dagger s$: medians as printed in STDLoc~\cite{stdloc}, whose sources report only success rates. $m$: our correction run as a MASt3R~\cite{mast3r}$\,\to\,$descriptor-field cascade rather than LoFTR throughout; median of 3 seeds, 100 test queries per scene, one configuration for every scene.}
 \label{tab:7scenes}
 \setlength{\tabcolsep}{2.2pt}
 \footnotesize
@@ -294,10 +294,10 @@ Method & Chess & Fire & Heads & Office & Pumpkin & Kitchen & Stairs & Avg.\\
 \midrule
 PoseNet~\cite{posenet}$^{\dagger r}$ & 10/4.02 & 27/10.0 & 18/13.0 & 17/5.97 & 19/4.67 & 22/5.91 & 35/10.5 & 21/7.74\\
 Marepo~\cite{marepo}$^{\dagger r}$ & 1.9/0.83 & 2.3/0.92 & 2.1/1.24 & 2.9/0.93 & 2.5/0.88 & 2.9/0.98 & 5.9/1.48 & 2.9/1.04\\
-DSAC*~\cite{dsacstar}$^{\dagger s}$ & 0.50/0.17 & 0.78/0.29 & 0.50/0.34 & 1.19/0.35 & 1.19/0.29 & 0.72/0.21 & 2.65/0.78 & 1.07/0.35\\
-ACE~\cite{ace}$^{\dagger s}$   & 0.55/0.18 & 0.83/0.33 & 0.53/0.33 & 1.05/0.29 & 1.06/0.22 & 0.77/0.21 & 2.89/0.81 & 1.10/0.34\\
-GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & 0.39/0.13 & 0.91/0.29 & 0.94/0.50 & 1.41/0.32 & 1.41/0.26 & 1.32/0.29 & 3.44/0.82 & 1.40/0.37\\
-\textbf{\method{} (Ours, prior-free, MASt3R$\to$field)}$^{m}$ & 0.43/0.15 & 0.48/0.22 & 0.47/0.31 & 1.08/0.32 & 0.89/0.23 & 0.81/0.21 & 2.12/0.66 & 0.90/0.30\\
+DSAC*~\cite{dsacstar}$^{\dagger s}$ & 0.50/0.17 & \underline{0.78}/\underline{0.29} & \underline{0.50}/0.34 & 1.19/0.35 & 1.19/0.29 & \textbf{0.72}/\textbf{0.21} & \underline{2.65}/\underline{0.78} & \underline{1.07}/0.35\\
+ACE~\cite{ace}$^{\dagger s}$ & 0.55/0.18 & 0.83/0.33 & 0.53/\underline{0.33} & \textbf{1.05}/\textbf{0.29} & \underline{1.06}/\textbf{0.22} & \underline{0.77}/\textbf{0.21} & 2.89/0.81 & 1.10/\underline{0.34}\\
+GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & \textbf{0.39}/\textbf{0.13} & 0.91/\underline{0.29} & 0.94/0.50 & 1.41/\underline{0.32} & 1.41/0.26 & 1.32/\underline{0.29} & 3.44/0.82 & 1.40/0.37\\
+\textbf{\method{} (Ours, prior-free, MASt3R$\to$field)}$^{m}$ & \underline{0.43}/\underline{0.15} & \textbf{0.48}/\textbf{0.22} & \textbf{0.47}/\textbf{0.31} & \underline{1.08}/\underline{0.32} & \textbf{0.89}/\underline{0.23} & 0.81/\textbf{0.21} & \textbf{2.12}/\textbf{0.66} & \textbf{0.90}/\textbf{0.30}\\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -404,7 +404,7 @@ Table~\ref{tab:ablation} removes one component at a time on the easiest and the 
 
 \begin{table}[t]
 \centering
-\caption{Ablation on Chess and Stairs (seed 0, 100 queries): median translation error (cm), success rate at 5\,cm/5$^\circ$ (\%), and translation AUSE. Each row removes or replaces one component of the full method.}
+\caption{Ablation on Chess and Stairs (seed 0, 100 queries): median translation error (cm), success rate at 5\,cm/5$^\circ$ (\%), and translation AUSE. Indented rows remove or replace one component of \emph{Full (ablation maps)}, the method on the maps used before the final fine-tune.}
 \label{tab:ablation}
 \setlength{\tabcolsep}{3pt}
 \scriptsize
@@ -414,8 +414,8 @@ Table~\ref{tab:ablation} removes one component at a time on the easiest and the 
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
 Variant & med. & SR & AUSE & med. & SR & AUSE \\
 \midrule
-Final (fine-tuned maps, agreement)      & 0.47 & 89 & 0.058 & 2.40 & 56 & 0.297 \\
-Full, previous maps                     & 0.56 & 88 & 0.056 & 2.83 & 58 & 0.291 \\
+\method{} (final maps)                 & 0.47 & 89 & 0.058 & 2.40 & 56 & 0.297 \\
+Full (ablation maps)                    & 0.56 & 88 & 0.056 & 2.83 & 58 & 0.291 \\
 \quad $-$ matching correction \eqref{eq:correction} & 13.55 & 39 & 0.068 & 45.08 & 6 & 0.220 \\
 \quad $-$ correspondence gate           & 0.54 & 88 & 0.065 & 2.90 & 57 & 0.262 \\
 \quad $-$ instance gate ($\lambda_u{=}0$) & 0.56 & 88 & 0.059 & 2.90 & 58 & 0.278 \\

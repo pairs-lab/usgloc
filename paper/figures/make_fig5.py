@@ -31,7 +31,7 @@ ACE = "results/ace_dsacstar_100"
 MAREPO = "results/marepo_100"
 DSAC = "data/visloc_pseudo_gt_limitations/estimates/sfm/7scenes"
 ACE_PNP = "results/ace_pnpcov_100"     # scripts/analysis/ace_pnp_covariance.py, 2-fold tau
-C_OURS, C_ACE, C_DSAC, C_MP = "#1B9E77", "#7570B3", "#A6761D", "#6E6E6E"
+C_OURS, C_ACE, C_DSAC, C_MP = "#1B9E77", "#7570B3", "#A6761D", "#555555"
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["Nimbus Roman", "Liberation Serif", "STIXGeneral"],
     "mathtext.fontset": "stix", "font.size": 7, "axes.titlesize": 7.5, "axes.labelsize": 7,

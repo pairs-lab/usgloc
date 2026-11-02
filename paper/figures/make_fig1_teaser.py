@@ -29,7 +29,11 @@ from matplotlib.patches import Polygon, Ellipse
 ROOT = Path("/home/thanhnc/gauss_ws/src/usgloc"); os.chdir(ROOT); sys.path.insert(0, str(ROOT))
 SRC = ROOT/"paper/figures/fig1_src"
 FW, FH = 7.16, 2.78
-C_EST, C_GT, C_UNC = "#ff3b30", "#19c37d", "#4da3ff"
+C_EST, C_GT, C_UNC = "#1B9E77", "white", "#1B9E77"        # = Figs. 4-6: ours green, truth white
+C_ACE, C_MP = "#7570B3", "#555555"
+plt.rcParams.update({"font.family": "serif",
+                     "font.serif": ["Nimbus Roman", "Liberation Serif", "STIXGeneral"],
+                     "mathtext.fontset": "stix", "pdf.fonttype": 42})
 
 M = json.load(open(SRC/"meta.json")); tau = M["tau"]
 q = np.load(SRC/"query.npy")
@@ -58,7 +62,7 @@ for i, (key, lab, im) in enumerate(CELLS):
     else:
         a.set_title(lab, fontsize=7.8, pad=2.5,
                     fontweight=("bold" if key == "ours" else "normal"))
-        col = C_EST if key == "ours" else "black"
+        col = {"ours": C_EST, "ace": C_ACE, "marepo": C_MP}[key]
         a.text(0.035, 0.05, f"{M[key]:.2f} cm", transform=a.transAxes, fontsize=7.6,
                color="white", va="bottom", fontweight=("bold" if key=="ours" else "normal"),
                bbox=dict(boxstyle="round,pad=0.22", fc=col, alpha=0.88, lw=0))
@@ -99,6 +103,7 @@ for ec, lw in (("white", 2.6), (C_UNC, 1.3)):
     ax.add_patch(Ellipse((fu[0], fv[0]), w, h, angle=ang, fc="none", ec=ec, lw=lw, zorder=7))
 tu, tv = project(C_t, cam)
 ax.plot(tu, tv, "o", mfc="none", mec=C_GT, mew=2.0, ms=10, zorder=9)
+ax.plot(tu, tv, "o", mfc="none", mec="black", mew=0.6, ms=12.0, zorder=9)
 ax.plot(fu[0], fv[0], "^", color=C_EST, ms=8, mec="white", mew=0.8, zorder=10)
 ax.annotate(f"$\\sigma_t$ {M['sigma']:.1f} cm\nerror {M['ours']:.2f} cm",
             xy=(fu[0], fv[0]), xytext=(0.055, 0.70), textcoords="axes fraction",
