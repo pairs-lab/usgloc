@@ -103,7 +103,7 @@ A separate line of work quantifies uncertainty rigorously, but it stops short of
 \begin{figure*}[t]
 \centering
 \resizebox{\textwidth}{!}{\input{figures/fig1_overview}}
-\caption{\method{} overview. \textbf{Offline} (grey): mapping frames train a semantic 3DGS map with an EDL head; conflict-aware DST fusion turns per-observation opinions $(\mathbf{b},u)$ into evidential primitives $\mathcal{G}_i$. \textbf{Online} (top): the query is encoded by the same head, matched against the map, and refined by differentiable rendering, yielding a calibrated Gaussian-mixture posterior that condenses to one Gaussian for an EKF. \textbf{One evidential channel} (gold): the same vacuity signal gates matching, gates the correction's correspondences, weights the rendering residual per pixel, and scales the Laplace covariance through the held-out temperature $\tau$.}
+\caption{\method{} on one Chess query. Offline (Sec.~III-A), the map is a set of evidential primitives $\mathcal{G}_i$, drawn as their $1\sigma$ ellipsoids coloured by fused vacuity $\tilde u_i$ (a subset, for legibility). Online, the query is encoded into the same evidential space (III-B); vacuity-gated matching yields coarse hypotheses $T^0_k$, shown as the map rendered at one (III-C, III-D); rendering-based refinement weights each pixel by $w=e^{-\gamma U_r}$ so that vacuous content loses its vote, and a tempered Laplace approximation returns the pose posterior (III-E), whose $2\sigma$ ellipse around the true pose is magnified in the inset. The same vacuity channel (gold) gates, weights and calibrates.}
 \label{fig:overview}
 \end{figure*}
 
