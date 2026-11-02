@@ -365,12 +365,12 @@ Coverage is closest to nominal at the 68.3\% level (61.1\%) but falls increasing
 \label{fig:unc}
 \end{figure}
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{fig_qual3.pdf}
-\caption{Map rendered at the pose \method{}, ACE and Marepo returned on identical queries, against ground truth. One row per scene, chosen by a fixed rule: confident and right; wrong and saying so; ACE fails where we do not; ACE beats us. Panels give translation error and, for \method{}, the percentile of its own $\sigma_t$.}
+\includegraphics[width=\textwidth]{fig_qual3.pdf}
+\caption{Map rendered at the pose \method{}, ACE and Marepo returned on identical queries, against ground truth, with a free-camera view of the map on the right ($\triangle$ ours, $\square$ ACE, $\Diamond$ Marepo, $\bigcirc$ true pose). One row per scene; each is the query with the largest margin over both baselines among our sub-centimetre results, so these are favourable examples and the tables carry the distribution. Panels give translation error and, for \method{}, the percentile of its own $\sigma_t$.}
 \label{fig:qual3}
-\end{figure}
+\end{figure*}
 
 \newcommand{\fpanel}[1]{\includegraphics[width=0.19\columnwidth]{fig4/#1}}
 \begin{figure}[t]

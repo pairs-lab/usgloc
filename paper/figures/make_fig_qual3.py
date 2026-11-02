@@ -14,7 +14,8 @@ Frames are chosen by a DISCLOSED RULE, not hand-picked:
   row 4  SplatHLoc beats us by the largest margin                  (honest contrast)
 Each row prints every method's error and its reported confidence.
 """
-import json, glob, os, re, sys
+import json, glob, os, re, sys, functools
+print = functools.partial(print, flush=True)
 from pathlib import Path
 import numpy as np
 import torch
@@ -67,8 +68,7 @@ def pick(rows):
         if r["scene"] in seen:
             continue
         seen.add(r["scene"])
-        r["why"] = (f"ours {r['e_ours']:.2f} cm  vs  ACE {r['e_ace']:.2f}, "
-                    f"Marepo {r['e_mp']:.2f}")
+        r["why"] = ""          # per-panel xlabels already carry the numbers
         sel.append(r)
         if len(sel) == 4:
             break
@@ -154,9 +154,9 @@ def main():
     import matplotlib.pyplot as plt
     from PIL import Image
     cols = [("query","query"),("T_gt","ground truth"),("T_ours","USGLoc (ours)"),
-            ("T_ace","ACE"),("T_mp","Marepo"),("mapview","3DGS map: where each pose lands")]
+            ("T_ace","ACE"),("T_mp","Marepo"),("mapview","3DGS map view")]
     plt.rcParams.update({"font.size": 8})
-    fig, axes = plt.subplots(len(panels), len(cols), figsize=(7.16, 1.30*len(panels)))
+    fig, axes = plt.subplots(len(panels), len(cols), figsize=(7.16, 1.18*len(panels)))
     for i,(r,outs) in enumerate(panels):
         for j,(key,title) in enumerate(cols):
             ax = axes[i,j]
@@ -166,21 +166,22 @@ def main():
                 for T_, col, mk in (("T_ours", "#1f4e79", "^"), ("T_ace", "#c0504d", "s"),
                                     ("T_mp", "#7f7f7f", "D")):
                     cu, cv = proj(centre(r[T_]), cam)
-                    ax.plot(cu, cv, mk, color=col, ms=4.5, mec="white", mew=0.7, zorder=5)
+                    ax.plot(cu, cv, mk, color=col, ms=6.5, mec="white", mew=0.9, zorder=5)
                 gu, gv = proj(centre(r["T_gt"]), cam)
-                ax.plot(gu, gv, "o", mfc="none", mec="#19c37d", mew=1.6, ms=8, zorder=6)
+                ax.plot(gu, gv, "o", mfc="none", mec="#19c37d", mew=2.0, ms=12, zorder=6)
                 ax.set_xlim(0, rgb.shape[1]); ax.set_ylim(rgb.shape[0], 0)
             else:
                 ax.imshow(outs[key])
             ax.set_xticks([]); ax.set_yticks([])
             for sp in ax.spines.values(): sp.set_visible(False)
-            Image.fromarray((outs[key]*255).astype("uint8")).save(OUT/f"{i}_{key}.png")
+            _img = outs[key][0] if key == "mapview" else outs[key]
+            Image.fromarray((_img*255).astype("uint8")).save(OUT/f"{i}_{key}.png")
             if i==0: ax.set_title(title.replace("\\textbf{","").replace("}",""), fontsize=8)
-        axes[i,0].set_ylabel(f"{r['scene']}\n{r['why']}", fontsize=6)
+        axes[i,0].set_ylabel(r['scene'], fontsize=7.5)
         axes[i,2].set_xlabel(f"{r['e_ours']:.2f} cm, $\\sigma_t$ {r['sig_pct']:.0f}th pct", fontsize=6.5)
         axes[i,3].set_xlabel(f"{r['e_ace']:.2f} cm (no covariance)", fontsize=6.5)
         axes[i,4].set_xlabel(f"{r['e_mp']:.2f} cm (no covariance)", fontsize=6.5)
-    fig.subplots_adjust(wspace=0.02, hspace=0.45, left=0.055, right=0.995, top=0.95, bottom=0.06)
+    fig.subplots_adjust(wspace=0.015, hspace=0.30, left=0.038, right=0.998, top=0.955, bottom=0.03)
     fig.savefig("paper/figures/fig_qual3.pdf", dpi=200)
     json.dump([{k:v for k,v in r.items() if not k.startswith("T_")} for r,_ in panels],
               open(OUT/"selection.json","w"), indent=1)
