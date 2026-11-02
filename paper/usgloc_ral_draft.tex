@@ -132,10 +132,10 @@ p\big(T \,\big|\, I_q, \mathcal{M}\big), \qquad T\in SE(3),
 \end{equation}
 and require it to be \emph{calibrated}: a credibility-$\alpha$ region of \eqref{eq:posterior} should contain the ground-truth pose with empirical frequency $\alpha$. To make uncertainty first-class on both sides, we represent each modality as a set of \emph{evidential semantic instances}. A reference primitive is
 \begin{equation}
-\mathcal{G}_i=\big(\bm{\mu}_i,\ \bm{\Sigma}_i,\ f_i,\ \mathbf{p}_i,\ u_i\big),
+\mathcal{G}_i=\big(\bm{\mu}_i,\ \bm{\Sigma}_i,\ f_i,\ \mathbf{p}_i,\ \tilde u_i\big),
 \label{eq:primitive}
 \end{equation}
-with mean $\bm{\mu}_i\in\mathbb{R}^3$, covariance $\bm{\Sigma}_i\in\mathbb{R}^{3\times3}$ (anisotropic geometry), CLIP embedding $f_i\in\mathbb{R}^{d}$, semantic probability $\mathbf{p}_i\in\Delta^{C-1}$ over $C$ categories, and a scalar vacuity (uncertainty) mass $u_i\in[0,1]$. A query instance $\mathcal{Q}_j=(\mathbf{x}_j, a_j, f_j^q, \mathbf{p}_j^q, u_j^q)$ stores its 2D centroid $\mathbf{x}_j$, area $a_j$, and the same semantic triplet. The remainder of the paper specifies each step. Sec.~III-A describes how $\mathcal{M}$ is built. Sec.~III-B describes how $I_q$ is encoded. Secs.~IV-C to IV-E describe how \eqref{eq:posterior} is produced by uncertainty-aware matching, correction, and refinement.
+with mean $\bm{\mu}_i\in\mathbb{R}^3$, covariance $\bm{\Sigma}_i\in\mathbb{R}^{3\times3}$ (anisotropic geometry), CLIP embedding $f_i\in\mathbb{R}^{d}$, semantic probability $\mathbf{p}_i\in\Delta^{C-1}$ over $C$ categories, and a scalar vacuity (uncertainty) mass $\tilde u_i\in[0,1]$, the conflict-aware vacuity of the fused primitive (Sec.~III-A). A query instance $\mathcal{Q}_j=(\mathbf{x}_j, a_j, f_j^q, \mathbf{p}_j^q, u_j^q)$ stores its 2D centroid $\mathbf{x}_j$, area $a_j$, and the same semantic triplet. The remainder of the paper specifies each step. Sec.~III-A describes how $\mathcal{M}$ is built. Sec.~III-B describes how $I_q$ is encoded. Secs.~IV-C to IV-E describe how \eqref{eq:posterior} is produced by uncertainty-aware matching, correction, and refinement.
 
 
 \subsection{Evidential Semantic Gaussian Map}
