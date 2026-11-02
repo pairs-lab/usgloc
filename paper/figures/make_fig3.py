@@ -8,6 +8,7 @@ Run behind Table IV and Sec. V-D (results/final_seed0), 7 scenes x 100 queries.
       the chi^2_6 density, tempered (d^2/tau) and raw.
 Drawn at IEEE column width (3.5 in) so it prints at scale 1.0.
     python3 make_fig3.py fig3_calibration.pdf
+    python3 make_fig3.py fig3_calibration_acepnp.pdf --ace-pnp   # + ACE with PnP covariance
 """
 import json, sys
 from pathlib import Path
@@ -21,7 +22,8 @@ ROOT = Path("/home/thanhnc/gauss_ws/src/usgloc")
 SCENES = ["chess", "fire", "heads", "office", "pumpkin", "redkitchen", "stairs"]
 RUN = "results/final_seed0"
 LEVELS = (0.683, 0.954, 0.997)
-C_OURS, C_RAW, C_REF = "#1B9E77", "#D95F02", "black"
+ACE_PNP = "results/ace_pnpcov_100"     # scripts/analysis/ace_pnp_covariance.py, 2-fold tau
+C_OURS, C_RAW, C_REF, C_ACE = "#1B9E77", "#D95F02", "black", "#7570B3"
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["Nimbus Roman", "Liberation Serif", "STIXGeneral"],
     "mathtext.fontset": "stix", "font.size": 7, "axes.titlesize": 7.5, "axes.labelsize": 7,
@@ -42,9 +44,15 @@ def load():
     return np.array(d2r), np.array(d2t)
 
 
+def load_ace_pnp():
+    return np.array([r["d2"] / r["tau"] for s in SCENES
+                     for r in json.load(open(ROOT / f"{ACE_PNP}/7scenes_{s}.json"))["records"]])
+
+
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else "fig3_calibration.pdf"
+    out = next((a for a in sys.argv[1:] if not a.startswith("--")), "fig3_calibration.pdf")
     d2r, d2t = load()
+    d2a = load_ace_pnp() if "--ace-pnp" in sys.argv else None
     fig, (a, b) = plt.subplots(1, 2, figsize=(3.5, 1.62))
     fig.subplots_adjust(left=0.105, right=0.985, bottom=0.215, top=0.885, wspace=0.40)
 
@@ -54,6 +62,8 @@ def main():
     a.fill_between(lv, lv, 0, color=C_RAW, alpha=0.06, lw=0)          # below: over-confident
     a.plot([0, 1], [0, 1], "--", color=C_REF, lw=0.9, label="ideal")
     a.plot(lv, ct, color=C_OURS, lw=1.5, label="tempered (ours)")
+    if d2a is not None:
+        a.plot(lv, [(d2a <= t).mean() for t in q], color=C_ACE, lw=1.5, label="ACE + PnP cov.")
     a.plot(lv, cr, color=C_RAW, lw=1.5, label="raw Laplace", clip_on=False)
     for lev in LEVELS:                                                  # the levels of Table IV
         a.plot(lev, (d2t <= chi2.ppf(lev, 6)).mean(), "o", ms=3.2, color=C_OURS,
@@ -71,6 +81,8 @@ def main():
     for v, c, al in ((d2t, C_OURS, 0.30), (d2r, C_RAW, 0.22)):
         b.hist(np.log10(v), bins=bins, density=True, histtype="stepfilled", color=c, alpha=al, lw=0)
         b.hist(np.log10(v), bins=bins, density=True, histtype="step", color=c, lw=1.0)
+    if d2a is not None:
+        b.hist(np.log10(d2a), bins=bins, density=True, histtype="step", color=C_ACE, lw=1.0)
     xs = np.linspace(-1, 2.2, 300); x = 10**xs
     b.plot(xs, chi2.pdf(x, 6) * x * np.log(10), "--", color=C_REF, lw=0.9)  # density of log10 d^2
     b.text(0.42, 1.45, r"$\chi^2_6$", ha="right", va="center", fontsize=7)

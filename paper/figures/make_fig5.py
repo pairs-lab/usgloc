@@ -13,6 +13,7 @@ solver on the same 100 frames per scene (results/ace_dsacstar_100).
     they are drawn flat.
 Drawn at IEEE column width (3.5 in) so it prints at scale 1.0.
     python3 make_fig5.py fig5_uncertainty.pdf
+    python3 make_fig5.py fig5_uncertainty_acepnp.pdf --ace-pnp   # + ACE with PnP covariance
 """
 import json, sys
 from pathlib import Path
@@ -29,6 +30,7 @@ RUN = "results/final_seed0"
 ACE = "results/ace_dsacstar_100"
 MAREPO = "results/marepo_100"
 DSAC = "data/visloc_pseudo_gt_limitations/estimates/sfm/7scenes"
+ACE_PNP = "results/ace_pnpcov_100"     # scripts/analysis/ace_pnp_covariance.py, 2-fold tau
 C_OURS, C_ACE, C_DSAC, C_MP = "#1B9E77", "#7570B3", "#A6761D", "#6E6E6E"
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["Nimbus Roman", "Liberation Serif", "STIXGeneral"],
@@ -57,7 +59,7 @@ def dsac_poses(s):
 
 
 def load():
-    ae, ai, oe, os_, de, me = [], [], [], [], [], []
+    ae, ai, oe, os_, de, me, ap = [], [], [], [], [], [], []
     for s in SCENES:
         a = json.load(open(ROOT / f"{ACE}/7scenes_{s}.json"))
         o = json.load(open(ROOT / f"{RUN}/7scenes_{s}.json")); tau = o["tau"]
@@ -66,13 +68,15 @@ def load():
         O = {(r["seq"], r["frame_id"]): r for r in o["records"]}
         M = {(r["seq"], r["frame_id"]): r for r in m["records"]}
         D = dsac_poses(s)
+        P = {(r["seq"], r["frame_id"]): r for r in
+             json.load(open(ROOT / f"{ACE_PNP}/7scenes_{s}.json"))["records"]}
         for k in sorted(set(A) & set(O) & set(M)):
             ae.append(100 * A[k]["t_err"]); ai.append(float(A[k]["inliers"]))
             oe.append(100 * O[k]["t_err"]); os_.append(O[k]["sigma_t"] * tau ** 0.5)
-            me.append(100 * M[k]["t_err"])
+            me.append(100 * M[k]["t_err"]); ap.append(P[k]["sigma_t"] * P[k]["tau"] ** 0.5)
             Td = D[f"{k[0]}/frame-{k[1]:06d}.color.png"]
             de.append(100 * np.linalg.norm(centre(Td) - centre(O[k]["T_gt"])))
-    return map(np.array, (ae, ai, oe, os_, de, me))
+    return map(np.array, (ae, ai, oe, os_, de, me, ap))
 
 
 def sparsify(sig, err):
@@ -88,21 +92,28 @@ def deciles(sig, err):
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else "fig5_uncertainty.pdf"
-    ae, ai, oe, os_, de, me = load()
+    out = next((a for a in sys.argv[1:] if not a.startswith("--")), "fig5_uncertainty.pdf")
+    pnp = "--ace-pnp" in sys.argv
+    ae, ai, oe, os_, de, me, ap = load()
+    sigs = [("ours", os_, oe, C_OURS, "-", rf"ours, $\sigma_t$")]
+    if pnp:
+        sigs.append(("ACE_pnp", ap, ae, C_ACE, "-", r"ACE, PnP $\sigma_t$"))
+    sigs.append(("ACE", -ai, ae, C_ACE if not pnp else "#B2ABD2", "-", "ACE, inliers"))
     fig, (a, b) = plt.subplots(1, 2, figsize=(3.5, 1.62))
     fig.subplots_adjust(left=0.105, right=0.985, bottom=0.215, top=0.885, wspace=0.40)
 
     # (a) sparsification by each method's own signal ---------------------------
-    ause = {}
-    for name, sig, err, c in (("ours", os_, oe, C_OURS), ("ACE", -ai, ae, C_ACE)):
+    ause, drawn = {}, set()
+    for name, sig, err, c, ls, lab in sigs:
         fr, cur = sparsify(sig, err); _, orc = sparsify(err, err)
         ause[name] = np.trapz(cur - orc, fr)
-        a.fill_between(fr, orc, cur, color=c, alpha=0.16, lw=0)
-        a.plot(fr, orc, "--", color=c, lw=0.8)                  # oracle: rank by true error
-        a.plot(fr, cur, color=c, lw=1.5)
-    a.legend(handles=[Line2D([], [], color=C_OURS, lw=1.5, label=rf"ours, $\sigma_t$ ({ause['ours']:.3f})"),
-                      Line2D([], [], color=C_ACE, lw=1.5, label=f"ACE, inliers ({ause['ACE']:.3f})")],
+        if not (pnp and name == "ACE"):                         # one shaded gap per method
+            a.fill_between(fr, orc, cur, color=c, alpha=0.16, lw=0)
+        if id(err) not in drawn:                                # oracle: rank by true error
+            a.plot(fr, orc, "--", color=c, lw=0.8); drawn.add(id(err))
+        a.plot(fr, cur, color=c, lw=1.5, ls=ls)
+    a.legend(handles=[Line2D([], [], color=c, lw=1.5, ls=ls, label=f"{lab} ({ause[n]:.3f})")
+                      for n, _, _, c, ls, lab in sigs],
              loc="upper right", frameon=False, handlelength=1.4, borderaxespad=0.1)
     a.set_xlim(0, 0.9); a.set_ylim(0, 1.04)
     a.set_xticks([0, 0.3, 0.6, 0.9]); a.set_yticks([0, 0.5, 1])
@@ -113,8 +124,11 @@ def main():
     # (b) median error per decile of reported confidence -----------------------
     xs = np.arange(1, 11)
     do, da = deciles(os_, oe), deciles(-ai, ae)
-    b.semilogy(xs, do, "o-", color=C_OURS, lw=1.4, ms=3.0, mec="white", mew=0.4, label=r"ours, $\sigma_t$")
-    b.semilogy(xs, da, "s-", color=C_ACE, lw=1.4, ms=2.8, mec="white", mew=0.4, label="ACE, inliers")
+    for n, sig, err, c, ls, lab in sigs:
+        mk = {"ours": "o", "ACE_pnp": "^", "ACE": "s"}[n]
+        b.semilogy(xs, deciles(sig, err), mk + "-", color=c, lw=1.4, ms=3.0, mec="white", mew=0.4, label=lab)
+    if pnp:
+        da = deciles(ap, ae)
     for e, c, lab, x in ((me, C_MP, "Marepo (no conf.)", 4.6), (de, C_DSAC, "DSAC* (no conf.)", 3.4)):
         b.plot([0.7, 10.3], [np.median(e)] * 2, ls=(0, (4, 2)), color=c, lw=1.0)
         b.annotate(lab, (x, np.median(e)), xytext=(0, 1.5), textcoords="offset points",
@@ -129,7 +143,8 @@ def main():
     b.set_xlabel("decile (1 = most confident)", labelpad=1.5)
     b.set_ylabel("median error (cm)", labelpad=1.5)
     b.set_title("(b) error per decile", pad=3)
-    b.legend(loc="upper left", frameon=False, handlelength=1.4, borderaxespad=0.1)
+    if not pnp:                                     # with three signals (a)'s legend serves both
+        b.legend(loc="upper left", frameon=False, handlelength=1.4, borderaxespad=0.1)
 
     fig.savefig(out)
     print(f"saved {out} | n={len(ae)} | AUSE ours {ause['ours']:.4f} ACE {ause['ACE']:.4f}"
