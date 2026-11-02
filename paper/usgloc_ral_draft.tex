@@ -196,7 +196,7 @@ by PnP-RANSAC with Levenberg--Marquardt refinement on the inliers, iterated (re-
 
 \subsection{Uncertainty-Aware Refinement and Pose Covariance}
 \label{sec:refine}
-\textbf{Weighted rendering objective.} Each corrected hypothesis $T_0$ is refined by differentiable rendering~\cite{icomma}. We parameterize the update in the tangent space as $T(\bm\xi)=\exp(\bm\xi^{\wedge})\,T_0$ with $\bm\xi\in\mathfrak{se}(3)$. We render both an RGB image $I_r(\bm\xi)$ and a per-pixel \emph{uncertainty map} $U_r$. The map $U_r$ is obtained by alpha-blending primitive vacuity exactly as color/depth are blended in 3DGS:
+\textbf{Weighted rendering objective.} Each corrected hypothesis $T'$ is refined by differentiable rendering~\cite{icomma}. We parameterize the update in the tangent space as $T(\bm\xi)=\exp(\bm\xi^{\wedge})\,T'$ with $\bm\xi\in\mathfrak{se}(3)$. We render both an RGB image $I_r(\bm\xi)$ and a per-pixel \emph{uncertainty map} $U_r$. The map $U_r$ is obtained by alpha-blending primitive vacuity exactly as color/depth are blended in 3DGS:
 \begin{equation}
 U_r(\mathbf{x})=\sum_{i} u_i\,\alpha_i(\mathbf{x})\!\prod_{j<i}\!\big(1-\alpha_j(\mathbf{x})\big),
 \label{eq:ublend}
@@ -232,21 +232,35 @@ where $n_k$ is the inlier count of the correction \eqref{eq:correction} at hypot
 \textbf{Point estimate and condensation.} For a downstream Bayesian filter we condense \eqref{eq:gmm} by moment matching~\cite{ksenet}: $\bm\mu=\sum_k\pi_k\bm\xi_k^\star$ and $\bm\Sigma=\sum_k\pi_k\big(\bm\Sigma_{\bm\xi,k}+(\bm\xi_k^\star-\bm\mu)(\bm\xi_k^\star-\bm\mu)^\top\big)$, which is transported to the inertial frame as the measurement covariance for an EKF/UKF~\cite{ukf}. The moment-matched \emph{mean}, however, is a poor point estimate when the posterior is genuinely multi-modal: it lies between the modes, at a pose the model itself considers unlikely. We therefore report the highest-weight mode as the pose and retain $\bm\Sigma$, which includes the between-component spread and so widens exactly when the modes disagree. The distinction is immaterial on unimodal scenes and substantial on Stairs, where the modes sit one stair tread apart.
 
 \begin{algorithm}[t]
-\caption{\method{} inference (one query image)}
+\caption{\method{} inference for one query image}
 \label{alg:infer}
+\algrenewcommand\algorithmiccomment[1]{\hfill{\color{outLn!80!black}\small\textit{#1}}}
+\newcommand{\stage}[1]{\Statex\hspace{-\algorithmicindent}\textbf{#1}}
 \begin{algorithmic}[1]
-\Require query $I_q$; evidential map $\mathcal{M}=\{\mathcal{G}_i\}$; submaps $\{S_k\}$
-\State $\{\mathcal{Q}_j\}\gets$ Fast-SAM masks of $I_q$; CLIP\,+\,EDL per instance \eqref{eq:edl}
-\State build query descriptors $d_j^q$ \eqref{eq:querydesc} and scene descriptor $F^q$
-\State score submaps by gated similarity \eqref{eq:gate}; take top-$k$ $\to$ hypotheses $\{(T_0^k,\tilde\pi_k)\}$
-\State snap each $T_0^k$ by the evidential matching correction \eqref{eq:correction}; re-rank by render fidelity
-\For{each hypothesis $k$}
-  \State refine $T_0^k$ by minimizing $E(\bm\xi)$ \eqref{eq:refine} with weight $w=e^{-\gamma U_r}$ \eqref{eq:ublend}
-  \State re-correct \eqref{eq:correction} + short re-refine; accept if render fidelity improves
-  \State compute $\bm\Sigma_{\bm\xi,k}$ by Laplace approximation \eqref{eq:laplace} at the accepted pose
+\Require $I_q$, map $\mathcal{M}$, anchors $\{T_a,F^G_a\}$, temperature $\tau$
+\Ensure $p(T\,|\,I_q,\mathcal{M})$ \eqref{eq:gmm}, pose $\hat T$, covariance $\bm\Sigma$
+\stage{Evidential query encoding}
+\State $\{\mathcal{Q}_j\}\gets$ Fast-SAM, CLIP and EDL \eqref{eq:edl} per instance
+\State $d^q_j\gets$ \eqref{eq:querydesc};\ \ $F^q\gets$ attention pooling of $\{d^q_j\}$
+\stage{Vacuity-gated matching}
+\State rank anchors by $s_{ij}$ \eqref{eq:gate} and $\cos(F^q,F^G_a)$ \Comment{gate}
+\State $\{(T^0_k,\tilde\pi_k)\}_{k=1}^{K'}\gets$ the top-$K'$ anchors
+\stage{Matching correction}
+\For{$k=1,\dots,K'$}
+  \State $(T'_k,n_k)\gets$ \eqref{eq:correction} from $T^0_k$, $\bar U_r\le u_{\max}$ \Comment{gate}
+  \State \textbf{if} unregistered: $T'_k\gets$ coarse-to-fine \eqref{eq:refine}
 \EndFor
-\State prune by render fidelity; assemble GMM \eqref{eq:gmm}; condense for the filter
-\State \Return $p(T\,|\,I_q,\mathcal{M})$ and its single-Gaussian summary
+\State merge equal $T'_k$ ($s_k\gets$ count); keep the top $K$
+\stage{Vacuity-weighted refinement}
+\For{each kept $k$}
+  \State $\bm\xi^\star_k\gets\arg\min E(\bm\xi)$ \eqref{eq:refine}, $w=e^{-\gamma U_r}$ \Comment{weight}
+  \State re-correct at $\bm\xi^\star_k$ if fidelity improves
+  \State $\bm\Sigma_{\bm\xi,k}\gets\tau\,\hat\sigma^2(J^\top WJ)^{-1}$ \eqref{eq:laplace} \Comment{calibrate}
+\EndFor
+\stage{Calibrated pose posterior}
+\State prune; $\pi_k\propto s_k\max(n_k/\max_j n_j,\epsilon)$ \eqref{eq:weights}
+\State $\hat T\gets$ top mode; $\bm\Sigma\gets$ moment match of \eqref{eq:gmm}
+\State \Return $p(T\,|\,I_q,\mathcal{M})$, $\hat T$, $\bm\Sigma$
 \end{algorithmic}
 \end{algorithm}
 
@@ -320,7 +334,7 @@ GSplatLoc~\cite{gsplatloc}$^\S$ & 1.4/0.26 & 91.9 & 70.3\\
 \end{table}
 
 % BEGIN AUTO prior-table
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \caption{Prior refinement on 7Scenes (median cm/$^\circ$, SfM pseudo-GT). $\ddagger$: the prior is re-run by us on the same 100 frames per scene. $\dagger$: as reported by GS-CPR~\cite{gscpr}. ``Correction'' is the matching correction alone; ``full'' is the complete pipeline seeded from the prior.}
 \label{tab:prior}
@@ -339,7 +353,7 @@ Marepo~\cite{marepo} prior$^\ddagger$ & 1.88/0.83 & 2.26/0.95 & 2.01/1.18 & 2.79
 \quad $+$ \method{} correction & 0.63/0.22 & 0.69/0.27 & 0.59/0.38 & 1.71/0.47 & 1.39/0.34 & 0.95/0.27 & 2.76/0.75 & 1.24/0.38\\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 % END AUTO prior-table
 \subsection{Uncertainty Calibration}
 This is the central evaluation. Prior 3DGS localizers report no calibration numbers. We therefore compare against our own ablations, including a softmax variant on matched maps (Table~\ref{tab:ablation}), and against the ideal $\chi^2$ reference. Fig.~\ref{fig:calib} and Table~\ref{tab:calib} summarize coverage, AUSE, and ECE over all 700 test queries.
