@@ -87,4 +87,4 @@ def ral_anchor(s):
 
 if __name__ == "__main__":
     splice(FULL, table(with_full=True, star=True), full_anchor)
-    splice(RAL, table(with_full=False, star=True), ral_anchor)    # 9 columns overflow one column
+    # the letter no longer carries this table (2026-11-03); the supplement has the full version
