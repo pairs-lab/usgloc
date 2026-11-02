@@ -48,42 +48,42 @@
   \node[inner sep=0pt, draw=ink!60, line width=0.35pt] at (2.12+\d, 6.42+\d)
     {\includegraphics[width=1.55cm]{fig1_blocks/chess_frame\i.png}};
 }
-\node[lab] at (2.26, 5.68) {mapping frames};
-\draw[flow, line width=1.1pt] (2.26,5.52) -- (2.26,5.22);
-\node[lab, anchor=east] at (2.16,5.37) {fit + distil};
+\node[lab] at (2.26, 5.60) {mapping frames};
+\draw[flow, line width=1.1pt] (2.26,5.44) -- (2.26,5.22);
+\node[lab, anchor=east] at (2.16,5.33) {fit + distil};
 % semantic 3DGS + EDL head
-\node[ttl, color=ink, font=\scriptsize\bfseries] at (2.26, 5.17) {Semantic 3DGS + EDL head};
-\node[inner sep=0pt, draw=ink!40, line width=0.3pt] (osem) at (2.26, 4.13)
-  {\includegraphics[width=4.25cm,height=1.55cm,keepaspectratio]{fig1_blocks/panel_sem.png}};
-\node[lab] at (2.26, 3.20) {opinion $(\mathbf{b},u)$ per Gaussian};
-\draw[flow, line width=1.1pt] (2.26,3.02) -- (2.26,2.60);
-\node[lab, anchor=east] at (2.16,2.80) {DST fusion};
-\node[lab, anchor=west] at (2.36,2.80) {$\tilde u_i{=}\min(1,u_i{+}\bar\eta_i)$};
+\node[ttl, color=ink, font=\scriptsize\bfseries] at (2.26, 5.15) {Semantic 3DGS + EDL head};
+\node[inner sep=0pt, draw=ink!40, line width=0.3pt] (osem) at (2.26, 4.02)
+  {\includegraphics[width=4.25cm,height=1.48cm,keepaspectratio]{fig1_blocks/panel_sem.png}};
+\node[lab] at (2.26, 3.10) {opinion $(\mathbf{b},u)$ per Gaussian};
+\draw[flow, line width=1.1pt] (2.26,2.94) -- (2.26,2.56);
+\node[lab, anchor=east] at (2.16,2.75) {DST fusion};
+\node[lab, anchor=west] at (2.36,2.75) {$\tilde u{=}\min(1,u{+}\bar\eta)$};
 % evidential map
-\node[ttl, color=ink, font=\scriptsize\bfseries] at (2.26, 2.58) {Evidential map $\mathcal{M}{=}\{\mathcal{G}_i\}$};
-\node[inner sep=0pt, draw=ink!40, line width=0.3pt] (omap) at (2.26, 1.47)
-  {\includegraphics[width=4.25cm,height=1.62cm,keepaspectratio]{fig1_blocks/panel_map.png}};
+\node[ttl, color=ink, font=\scriptsize\bfseries] at (2.26, 2.50) {Evidential map $\mathcal{M}{=}\{\mathcal{G}_i\}$};
+\node[inner sep=0pt, draw=ink!40, line width=0.3pt] (omap) at (2.26, 1.36)
+  {\includegraphics[width=4.25cm,height=1.55cm,keepaspectratio]{fig1_blocks/panel_map.png}};
 \shade[left color=uLow, right color=uHigh, middle color=uMid]
   ($(omap.south east)+(-1.05,0.10)$) rectangle ++(0.82,0.11);
 \node[font=\scriptsize\bfseries\color{white}, anchor=east] at ($(omap.south east)+(-1.08,0.155)$) {$\tilde u$};
 \node[eqn] at (2.26, 0.06) {$\mathcal{G}_i=(\bm\mu_i,\bm\Sigma_i,f_i,\mathbf{p}_i,\tilde u_i)$};
 
 % ===================================================== COARSE row (left -> right)
-\foreach \x in {\cA,\cB,\cC}{ \draw[blk=poseC] (\x,\rC) rectangle ++(\BW,\RH); }
+\foreach \x in {\cA,\cB,\cC}{ \draw[blk=ink] (\x,\rC) rectangle ++(\BW,\RH); }
 % B1 query encoding
-\node[ttl, color=poseC] at ($(A)+(0,\rC+\RH-0.07)$) {Evidential query encoding};
-\node[inner sep=0pt] (qimg) at ($(A)+(0,\rC+1.78)$)
+\node[ttl, color=black] at ($(A)+(0,\rC+\RH-0.07)$) {Evidential query encoding};
+\node[inner sep=0pt] (qimg) at ($(A)+(0,\rC+1.66)$)
   {\includegraphics[width=\IW cm,height=\IH cm,keepaspectratio]{fig4/a_query.png}};
 \node[tag] at (qimg.north west) {query $I_q$};
 \node[eqn] at ($(A)+(0,\rC+0.07)$) {$\mathcal{Q}_j=(\mathbf{x}_j,a_j,f^q_j,\mathbf{p}^q_j,u^q_j)$};
 % B2 gated matching
-\node[ttl, color=poseC] at ($(B)+(0,\rC+\RH-0.07)$) {Vacuity-gated matching};
-\node[inner sep=0pt] (mimg) at ($(B)+(0,\rC+1.78)$)
+\node[ttl, color=black] at ($(B)+(0,\rC+\RH-0.07)$) {Vacuity-gated matching};
+\node[inner sep=0pt] (mimg) at ($(B)+(0,\rC+1.66)$)
   {\includegraphics[width=\IW cm,height=\IH cm,keepaspectratio]{fig4/a_init.png}};
 \node[tag] at (mimg.north west) {render at $T^0_k$};
 \node[eqn] at ($(B)+(0,\rC+0.07)$) {gate $\exp\!\big(\!-\lambda_u(u^G_i+u^q_j)\big)$};
 % B3 hypotheses: schematic (hypothesis poses are not stored per query)
-\node[ttl, color=poseC] at ($(C)+(0,\rC+\RH-0.07)$) {Top-$K$ pose hypotheses};
+\node[ttl, color=black] at ($(C)+(0,\rC+\RH-0.07)$) {Top-$K$ pose hypotheses};
 \begin{scope}[shift={($(C)+(-1.35,\rC+1.10)$)}]
   \foreach \dx/\op/\s in {0/1.00/1.00, 1.00/0.62/0.90, 1.90/0.34/0.80}{
     \begin{scope}[shift={(\dx,0)}, scale=\s, opacity=\op]
@@ -97,14 +97,14 @@
   \node[font=\scriptsize\color{poseC!40}] at (2.30,-0.12) {$\tilde\pi_3$};
 \end{scope}
 \node[eqn] at ($(C)+(0,\rC+0.07)$) {$\{(T^0_k,\tilde\pi_k)\}_{k=1}^{K}$};
-\draw[flow] (\cA+\BW+0.03, \rC+1.78) -- (\cB-0.03, \rC+1.78);
-\draw[flow] (\cB+\BW+0.03, \rC+1.78) -- (\cC-0.03, \rC+1.78);
+\draw[flow] (\cA+\BW+0.03, \rC+1.66) -- (\cB-0.03, \rC+1.66);
+\draw[flow] (\cB+\BW+0.03, \rC+1.66) -- (\cC-0.03, \rC+1.66);
 
 % ===================================================== FINE row (right -> left)
-\foreach \x in {\cB,\cC}{ \draw[blk=fineC] (\x,\rF) rectangle ++(\BW,\RH); }
+\foreach \x in {\cB,\cC}{ \draw[blk=ink] (\x,\rF) rectangle ++(\BW,\RH); }
 \draw[blk=poseC, line width=1.0pt] (\cA,\rF) rectangle ++(\BW,\RH);
 % C1 matching correction: schematic of gated correspondences
-\node[ttl, color=fineC] at ($(C)+(0,\rF+\RH-0.07)$) {Matching correction};
+\node[ttl, color=black] at ($(C)+(0,\rF+\RH-0.07)$) {Matching correction};
 \begin{scope}[shift={($(C)+(-1.62,\rF+0.98)$)}]
   \node[inner sep=0pt, draw=ink!50, line width=0.4pt, anchor=south west] (cq) at (0,0)
     {\includegraphics[width=1.38cm]{fig4/a_query.png}};
@@ -119,10 +119,10 @@
 \end{scope}
 \node[eqn] at ($(C)+(0,\rF+0.07)$) {$\big[\bar U_r(\mathbf{x}^r_k)\le u_{\max}\big]\,\rho(\cdot)\ \to$ PnP};
 % C2 vacuity-weighted refinement
-\node[ttl, color=fineC] at ($(B)+(0,\rF+\RH-0.07)$) {Vacuity-weighted refinement};
-\node[inner sep=0pt] (ur) at ($(B)+(-0.99,\rF+1.95)$)
+\node[ttl, color=black] at ($(B)+(0,\rF+\RH-0.07)$) {Vacuity-weighted refinement};
+\node[inner sep=0pt] (ur) at ($(B)+(-0.99,\rF+1.92)$)
   {\includegraphics[width=1.88cm]{fig4/a_vacuity.png}};
-\node[inner sep=0pt] (ww) at ($(B)+(0.99,\rF+1.95)$)
+\node[inner sep=0pt] (ww) at ($(B)+(0.99,\rF+1.92)$)
   {\includegraphics[width=1.88cm]{fig4/a_weight.png}};
 \node[tag] at (ur.north west) {$U_r$};
 \node[tag] at (ww.north west) {$w$};
@@ -131,10 +131,10 @@
 \node[eqn] at ($(B)+(0,\rF+0.07)$) {$E(\bm\xi)=\textstyle\sum_{\mathbf{x}} w\,\|I_q-I_r(\bm\xi)\|^2$};
 % C3 calibrated posterior
 \node[ttl, color=poseC] at ($(A)+(0,\rF+\RH-0.07)$) {Calibrated pose posterior};
-\node[inner sep=0pt] (pimg) at ($(A)+(0,\rF+1.98)$)
-  {\includegraphics[width=\IW cm,height=1.72cm,keepaspectratio]{fig1_blocks/panel_post.png}};
+\node[inner sep=0pt] (pimg) at ($(A)+(0,\rF+1.88)$)
+  {\includegraphics[width=\IW cm,height=1.64cm,keepaspectratio]{fig1_blocks/panel_post.png}};
 \node[eqn] at ($(A)+(0,\rF+0.05)$)
-  {$\bm\Sigma_{\bm\xi}\approx\tau\hat\sigma^2(J^\top WJ)^{-1}$\\[-0.4mm] $p(T|I_q,\mathcal{M})\to$ EKF};
+  {$\bm\Sigma_{\bm\xi}\approx\tau\hat\sigma^2(J^\top WJ)^{-1}$\\[0.6mm] $p(T|I_q,\mathcal{M})\to$ EKF};
 \draw[flow] (\cC-0.03, \rF+1.86) -- (\cB+\BW+0.03, \rF+1.86);
 \node[lab, anchor=south] at ($(\cB+\BW, \rF+1.86)!0.5!(\cC, \rF+1.86)$) {$T'_k$};
 \draw[flow] (\cB-0.03, \rF+1.86) -- (\cA+\BW+0.03, \rF+1.86);
