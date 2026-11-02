@@ -304,29 +304,38 @@ GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & 0.39/0.13 & 0.91/0.29 & 0.94/0.50 
 
 Table~\ref{tab:12scenes} extends the comparison to 12Scenes.
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering
-\caption{12Scenes, averaged over the 12 scenes: median translation/rotation and the share of queries within 5\,cm/5$^\circ$ and 2\,cm/2$^\circ$. A dash means the source publishes no such number, which we do not fill from elsewhere. $\S$: as reported by a third paper rather than by the authors.}
+\caption{Median translation/rotation error (cm/$^\circ$) on 12Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better. $\S$: as printed in ULF-Loc~\cite{ulfloc}. $\ast$: computed by us from the authors' published DSAC* estimates~\cite{brachmann2021dslam}. $\|$: overall median from the 12Scenes study of~\cite{marepo}, under the original D-SLAM poses; per-scene medians are not published (--). Ours: Table~\ref{tab:7scenes} configuration, seed 0, 100 test queries per scene; \res: scene still running.}
 \label{tab:12scenes}
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3.2pt}
 \footnotesize
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{lccccccc}
 \toprule
-Method & Med.\ (cm/$^\circ$) & SR@5/5 & SR@2/2\\
+& \multicolumn{2}{c}{Apartment 1} & \multicolumn{4}{c}{Apartment 2} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-7}
+Method & Kitchen & Living & Bed & Kitchen & Living & Luke & \\
 \midrule
-\multicolumn{4}{@{}l}{\textit{APR: absolute-pose regression}}\\
-Marepo~\cite{marepo}$^\S$ & 2.1/1.04 & 95.0 & 50.4\\
+PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & \\
+Marepo~\cite{marepo}$^\S$ & 1.9/1.2 & 1.7/0.9 & 2.0/1.0 & 2.1/1.1 & 1.8/0.9 & 2.3/1.3 & \\
+DSAC*~\cite{dsacstar}$^\ast$ & 0.39/0.24 & 0.40/0.18 & 0.38/0.18 & 0.37/0.19 & 0.69/0.33 & 0.62/0.26 & \\
+ACE~\cite{ace}$^\S$ & 0.53/0.27 & 0.60/0.19 & 0.49/0.20 & 0.63/0.26 & 0.59/0.23 & 0.76/0.27 & \\
+GSplatLoc~\cite{gsplatloc}$^\S$ & 1.31/0.24 & 0.68/0.21 & 1.42/0.24 & 0.67/0.26 & 0.54/0.19 & 1.84/0.31 & \\
+\textbf{\method{} (Ours)} & 2.35/1.56 & 0.61/0.25 & \res & \res & \res & \res & \\
 \midrule
-\multicolumn{4}{@{}l}{\textit{SCR: scene-coordinate regression}}\\
-DSAC*~\cite{dsacstar}$^\S$ & 0.5/0.25 & \underline{99.8} & 96.7\\
-ACE~\cite{ace}$^\S$ & 0.7/0.26 & \textbf{100.0} & 97.2\\
+& \multicolumn{4}{c}{Office 1} & \multicolumn{2}{c}{Office 2} & \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-7}
+Method & Gates362 & Gates381 & Lounge & Manolis & 5a & 5b & Avg.\\
 \midrule
-\multicolumn{4}{@{}l}{\textit{NRL: prior-free neural-rendering localization}}\\
-GSplatLoc~\cite{gsplatloc}$^\S$ & 1.4/0.26 & 91.9 & 70.3\\
-\textbf{\method{} (Ours)} & \res & \res & \res\\
+PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & 9.4/3.9\\
+Marepo~\cite{marepo}$^\S$ & 1.7/0.9 & 2.4/1.2 & 1.9/1.0 & 1.9/0.9 & 2.0/0.9 & 2.9/1.1 & 2.1/1.04\\
+DSAC*~\cite{dsacstar}$^\ast$ & 0.42/0.18 & 0.68/0.33 & 0.54/0.20 & 0.58/0.29 & 0.76/0.32 & 0.73/0.27 & 0.55/0.25\\
+ACE~\cite{ace}$^\S$ & 0.69/0.22 & 0.81/0.32 & 0.84/0.21 & 0.76/0.28 & 0.86/0.33 & 0.82/0.28 & 0.70/0.26\\
+GSplatLoc~\cite{gsplatloc}$^\S$ & 1.82/0.26 & 1.99/0.26 & 0.64/0.22 & 0.78/0.27 & 3.66/0.37 & 0.94/0.27 & 1.36/0.26\\
+\textbf{\method{} (Ours)} & \res & \res & \res & \res & \res & \res & \res\\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \subsection{Uncertainty Calibration}
 This is the central evaluation. Prior 3DGS localizers report no calibration numbers. We therefore compare against our own ablations, including a softmax variant on matched maps (Table~\ref{tab:ablation}), and against the ideal $\chi^2$ reference. Fig.~\ref{fig:calib} and Table~\ref{tab:calib} summarize coverage, AUSE, and ECE over all 700 test queries.
