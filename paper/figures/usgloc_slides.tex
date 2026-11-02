@@ -639,7 +639,7 @@ from 3D Gaussian Splatting}
       lab/.style={font=\tiny\color{ink!65}, align=center},
       ar/.style={->, line width=0.7pt, draw=ink!85}]
     \node[st, fill=encBg]    (s1) at (0,0)    {EDL opinion\\[0.5mm]$u = C/S$};
-    \node[st, fill=encBg]    (s2) at (2.75,0) {DST fusion\\[0.5mm]$\tilde{u} = u + \bar\eta$};
+    \node[st, fill=encBg]    (s2) at (2.75,0) {DST fusion\\[0.5mm]$u \leftarrow u + \bar\eta$};
     \node[st, fill=coarseBg] (s3) at (5.5,0)  {matching gate\\[0.5mm]$e^{-\lambda_u(u^G+u^q)}$};
     \node[st, fill=fineBg]   (s4) at (8.25,0) {pixel weight\\[0.5mm]$e^{-\gamma U_r(\mathbf{x})}$};
     \node[st, fill=fineBg]   (s5) at (11.0,0) {covariance\\[0.5mm]$\tau\,\hat\sigma^2 (J^{\!\top}\! W J)^{-1}$};
@@ -805,7 +805,7 @@ from 3D Gaussian Splatting}
         confident, contradictory opinions (a moved object!) fuse to
         \bad{low} vacuity --- the opposite of what we need.\\[1mm]
         Fix: accumulate $\bar\eta_i$ and use the \textbf{effective vacuity}
-        $\tilde{u}_i = \min(1,\, u_i + \bar\eta_i)$ (equivalently Yager's
+        $u_i \leftarrow \min(1,\, u_i + \bar\eta_i)$ (equivalently Yager's
         rule). Numeric example in backup.
       \end{block}
       \vspace{1mm}
@@ -1249,7 +1249,7 @@ from 3D Gaussian Splatting}
   \begin{itemize}
     \item Persistent disagreement is the \emph{signature of a moved object}
           --- exactly the case the vacuity must flag.
-    \item Hence $\tilde{u}_i = \min(1, u_i + \bar\eta_i)$ everywhere
+    \item Hence $u_i \leftarrow \min(1, u_i + \bar\eta_i)$ everywhere
           downstream; ablated in the paper (Dempster vs.\ conflict-aware).
   \end{itemize}
 \end{frame}
