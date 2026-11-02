@@ -178,10 +178,16 @@ def main():
             Image.fromarray((_img*255).astype("uint8")).save(OUT/f"{i}_{key}.png")
             if i==0: ax.set_title(title.replace("\\textbf{","").replace("}",""), fontsize=8)
         axes[i,0].set_ylabel(r['scene'], fontsize=7.5)
-        axes[i,2].set_xlabel(f"{r['e_ours']:.2f} cm, $\\sigma_t$ {r['sig_pct']:.0f}th pct", fontsize=6.5)
-        axes[i,3].set_xlabel(f"{r['e_ace']:.2f} cm (no covariance)", fontsize=6.5)
-        axes[i,4].set_xlabel(f"{r['e_mp']:.2f} cm (no covariance)", fontsize=6.5)
-    fig.subplots_adjust(wspace=0.015, hspace=0.30, left=0.038, right=0.998, top=0.955, bottom=0.03)
+        # errors sit INSIDE the panels: below them they cost a row of whitespace
+        # and read as detached from the image they describe
+        def stamp(ax, txt, fc):
+            ax.text(0.035, 0.05, txt, transform=ax.transAxes, fontsize=7.0,
+                    color="white", va="bottom", ha="left", zorder=9,
+                    bbox=dict(boxstyle="round,pad=0.22", fc=fc, alpha=0.90, lw=0))
+        stamp(axes[i,2], f"{r['e_ours']:.2f} cm   $\\sigma_t$ {r['sig_pct']:.0f}th pct", "#c0504d")
+        stamp(axes[i,3], f"{r['e_ace']:.2f} cm", "#333333")
+        stamp(axes[i,4], f"{r['e_mp']:.2f} cm", "#333333")
+    fig.subplots_adjust(wspace=0.012, hspace=0.045, left=0.034, right=0.998, top=0.955, bottom=0.008)
     fig.savefig("paper/figures/fig_qual3.pdf", dpi=200)
     json.dump([{k:v for k,v in r.items() if not k.startswith("T_")} for r,_ in panels],
               open(OUT/"selection.json","w"), indent=1)
