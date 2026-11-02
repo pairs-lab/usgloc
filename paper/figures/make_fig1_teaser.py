@@ -62,8 +62,7 @@ for i, (key, lab, im) in enumerate(CELLS):
         a.text(0.035, 0.05, f"{M[key]:.2f} cm", transform=a.transAxes, fontsize=7.6,
                color="white", va="bottom", fontweight=("bold" if key=="ours" else "normal"),
                bbox=dict(boxstyle="round,pad=0.22", fc=col, alpha=0.88, lw=0))
-fig.text(X0/FW, 0.012/FH, "map rendered at each method's returned pose",
-         fontsize=7.0, va="baseline", color="#555555")
+
 
 RX, RW = 3.33, 3.79
 ax = fig.add_axes([RX/FW, 0.055/FH, RW/FW, 2.46/FH])
@@ -107,6 +106,12 @@ ax.annotate(f"$\\sigma_t$ {M['sigma']:.1f} cm\nerror {M['ours']:.2f} cm",
             arrowprops=dict(arrowstyle="-", color="white", lw=0.9,
                             shrinkA=2, shrinkB=9))
 
+ax.text(0.012, 0.975,
+        "USGLoc: every query returns a pose $\\it{and}$ its covariance",
+        transform=ax.transAxes, fontsize=8.6, fontweight="bold", color="white",
+        va="top", ha="left", zorder=22,
+        bbox=dict(boxstyle="square,pad=0.34", fc="black", alpha=0.62, ec="none"))
+
 ax.plot([], [], "^", color=C_EST, ms=7, label="estimated pose")
 ax.plot([], [], "o", mfc="none", mec=C_GT, mew=1.8, ms=8, label="true pose")
 ax.add_patch(Ellipse((-99, -99), 1, 1, fc=C_UNC, alpha=0.6, ec=C_UNC,
@@ -124,9 +129,7 @@ cb = ColorbarBase(cax, cmap=cmap, norm=norm, orientation="vertical")
 cb.set_label(r"reported $\sigma_t$ [cm]", fontsize=7.0, color="white", labelpad=2)
 cb.ax.tick_params(labelsize=6.5, colors="white", width=0.5, length=2)
 cb.outline.set_edgecolor("white"); cb.outline.set_linewidth(0.5)
-fig.text((RX+0.02)/FW, 2.60/FH,
-         "3DGS map of fire: each query coloured by the $\\sigma_t$ we report",
-         fontsize=7.6, va="baseline")
+
 fig.savefig("paper/figures/fig1_teaser.pdf", dpi=300)
 print(f"wrote fig1_teaser.pdf | fire {M['seq']}/{M['frame']}: ours {M['ours']:.2f} cm, "
       f"ACE {M['ace']:.2f}, Marepo {M['marepo']:.2f}, sigma {M['sigma']:.2f} cm")
