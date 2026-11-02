@@ -14,7 +14,7 @@
 \documentclass[tikz,border=3pt]{standalone}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{graphicx}
-\usetikzlibrary{positioning,arrows.meta,backgrounds,fit,calc}
+\usetikzlibrary{positioning,arrows.meta,backgrounds,fit,calc,shadings}
 
 \definecolor{ink}{HTML}{273746}
 \definecolor{uLow}{HTML}{1B9E77}
@@ -46,23 +46,28 @@
 ]
 
 % ============================ OFFLINE STRIP =================================
-% mapping frames glyph
-\foreach \dx/\dy in {0.14/0.14, 0.07/0.07, 0/0}{
-  \draw[ink!55, fill=ink!6, line width=0.4pt]
-    (0.25+\dx, 1.05+\dy) rectangle +(1.05, 0.7);
+% mapping frames: three real training views
+\foreach \i/\dx/\dy in {2/0.16/0.16, 1/0.08/0.08, 0/0/0}{
+  \node[inner sep=0pt, draw=ink!60, line width=0.35pt]
+    at (1.15+\dx, 1.42+\dy) {\includegraphics[width=10mm]{fig1_blocks/mapframe\i.png}};
 }
-\node[sub, anchor=north] at (0.95, 0.92) {mapping\\frames};
-\draw[flow] (0.95, 0.55) -- (0.95, 0.1);
-\node[mod, text width=23mm, font=\scriptsize\color{ink}] (edlhead) at (0.95,-0.42)
+\node[sub, anchor=north] at (1.15, 0.92) {mapping frames};
+\draw[flow] (1.15, 0.72) -- (1.15, 0.12);
+\node[mod, text width=23mm, font=\scriptsize\color{ink}] (edlhead) at (1.15,-0.42)
   {semantic 3DGS\\ + EDL head (3)};
-\draw[flow] (0.95,-0.98) -- node[sym, right=0mm] {$(\mathbf{b},u)$} (0.95,-1.45);
+\draw[flow] (1.15,-0.98) -- node[sym, right=0mm] {$(\mathbf{b},u)$} (1.15,-1.22);
 % evidential map: splats colored by vacuity
-\foreach \x/\y/\a/\c in {0.45/-2.0/15/uLow, 0.95/-1.8/-25/uMid, 1.5/-2.05/40/uHigh,
-                         0.7/-2.35/-10/uLow, 1.3/-2.35/28/uLow}{
-  \fill[\c!70, rotate around={\a:(\x,\y)}] (\x,\y) ellipse (2.6mm and 1.1mm);
+% the real map, rendered from a free camera: Gaussians, not a schematic
+\node[inner sep=0pt, draw=ink!60, line width=0.35pt] (map3d) at (1.15,-2.00)
+  {\includegraphics[width=20mm]{fig1_blocks/map3d.png}};
+% vacuity key, so the colour channel carried below means something
+\foreach \i/\c in {0/uLow, 1/uMid, 2/uHigh}{
+  \shade[inner color=\c!25, outer color=\c!85] (0.42+0.26*\i, -3.00) circle (0.9mm);
 }
-\node[sub, anchor=north] at (0.98,-2.55)
-  {evidential map\\$\mathcal{M}{=}\{\mathcal{G}_i\}$};
+\node[sub, anchor=west, font=\tiny\color{ink!75}] at (1.08,-3.00) {$u$: low$\to$high};
+\node[sub, anchor=north, text width=30mm] at (1.15,-3.18)
+  {evidential map $\mathcal{M}{=}\{\mathcal{G}_i\}$\\[-0.4mm]
+   {\tiny $\mathcal{G}_i{=}(\bm\mu_i,\bm\Sigma_i,f_i,\mathbf{p}_i,\tilde u_i)$}};
 
 % ============================== BAND A ======================================
 % query
@@ -146,13 +151,13 @@
   \draw[outLn!70, line width=0.5pt] (0,-0.42) -- (0.44,-0.42) -- (0.22,-0.06) -- cycle;
   \node[font=\scriptsize\color{outLn}] at (0.68,-0.02) {$\oplus$};
   \draw[outLn, line width=0.6pt] (0.9,-0.28) -- (1.5,-0.28) -- (1.2,0.22) -- cycle;
-  \node[sub, anchor=north, text width=30mm] at (0.52,-0.60)
-    {conflict-aware fusion (4)\\$\tilde{u}{=}\min(1,u{+}\bar\eta)$};
+  \node[sub, anchor=north, text width=24mm] at (0.26,-0.56)
+    {conflict-aware fusion (4)\\[-0.3mm]{\tiny $\tilde{u}{=}\min(1,u{+}\bar\eta)$}};
 \end{scope}
 % vacuity heatmap glyph U_r
 \node[inner sep=0pt, draw=ink!55, line width=0.4pt] (urimg) at (10.95,-2.34)
   {\includegraphics[width=12mm]{fig4/a_vacuity.png}};
-\node[sub, anchor=north] at (10.95,-2.86) {rendered $U_r$ (9)};
+\node[sub, anchor=north] at (11.05,-2.90) {rendered $U_r$ (9)};
 % temperature chip
 \node[mod, draw=outLn, text width=16mm, font=\scriptsize\color{ink}] (temp) at (13.35,-2.45)
   {temperature $\tau$\\(held-out fit)};
@@ -166,9 +171,9 @@
 % injections: UP into row 1, DOWN into row 2 -- one channel, both bands
 \draw[inject] (9.35,-1.95) -- node[sym, right=0.2mm]
   {gate $e^{-\lambda_u(\tilde{u}^G_i+u^q_j)}$} (match.south);
-\draw[inject] (10.25,-3.05) -- node[sym, left=0.2mm, pos=0.30, fill=white, inner sep=1pt]
+\draw[inject] (10.25,-3.60) -- node[sym, left=0.2mm, pos=0.42, fill=white, inner sep=1pt]
   {$\bar U_r{\le}u_{\max}$} (corr.north);
-\draw[inject] (11.65,-3.05) -- node[sym, right=0.2mm, pos=0.30, fill=white, inner sep=1pt]
+\draw[inject] (11.65,-3.60) -- node[sym, right=0.2mm, pos=0.42, fill=white, inner sep=1pt]
   {$w{=}e^{-\gamma U_r}$} (refine.north);
 \draw[inject] (temp.south) -- node[sym, right=0.2mm] {$\tau$} (lap.north);
 
@@ -176,7 +181,7 @@
 \begin{scope}[on background layer]
   % offline strip
   \node[fill=ink!5, draw=ink!35, dashed, rounded corners=3pt, inner sep=2.6mm,
-        fit={(edlhead) (0.2,1.95) (1.8,-3.35)}] (offpan) {};
+        fit={(edlhead) (map3d) (-0.20,2.05) (2.55,-3.95)}] (offpan) {};
   % coarse panel
   \node[fill=coarseBg, draw=coarseLn, rounded corners=3pt, inner sep=2.8mm,
         fit={(enc) (match) (hyplab) (13.9,0.2)}] (cpan) {};
@@ -188,7 +193,7 @@
         fit={(lap) (14.6,-6.45) (14.6,-5.25)}] (ppan) {};
   % evidence band
   \node[fill=outBg, draw=outLn!70, rounded corners=3pt, inner sep=2.8mm,
-        fit={(5.45,-1.8) (temp) (urimg) (14.3,-3.05) (5.45,-3.05)}] (epan) {};
+        fit={(5.45,-1.8) (temp) (urimg) (14.3,-3.42) (5.45,-3.42)}] (epan) {};
 \end{scope}
 \node[panlab, anchor=south west] at (offpan.north west)
   {Offline: evidential mapping (III-A)};
@@ -200,8 +205,8 @@
   {One evidential channel: created once, never dropped};
 
 % map feeds the online flow
-\draw[flow] (1.9,-0.42) -- node[sym, above=0mm, pos=0.5] {$\mathcal{M}$}
-  (2.9,-0.42) -- (8.4,-0.42) -- (match.south west);
+\draw[flow] (2.18,-0.42) -- node[sym, above=0.4mm, pos=0.62] {$\mathcal{M}$}
+  (2.95,-0.42) -- (8.4,-0.42) -- (match.south west);
 
 \end{tikzpicture}
 \end{document}
