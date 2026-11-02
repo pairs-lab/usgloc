@@ -13,6 +13,7 @@
 %  * two accent colors only: gold = evidence, blue = pose distributions.
 \documentclass[tikz,border=3pt]{standalone}
 \usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
 \usetikzlibrary{positioning,arrows.meta,backgrounds,fit,calc}
 
 \definecolor{ink}{HTML}{273746}
@@ -65,7 +66,8 @@
 
 % ============================== BAND A ======================================
 % query
-\draw[ink!70, fill=ink!4, line width=0.5pt] (3.35, 0.62) rectangle +(1.15, 0.78);
+\node[inner sep=0pt, draw=ink!70, line width=0.5pt] (qimg) at (3.92, 1.01)
+  {\includegraphics[width=11.5mm]{fig4/a_query.png}};
 \node[sub, anchor=north] at (3.92, 0.55) {query $I_q$};
 
 % evidential encoding
@@ -99,20 +101,22 @@
   {top-$k$ hypotheses\\$\{(T^0_k,\tilde\pi_k)\}$};
 \draw[flow] (match.east) -- node[sym, above=0mm] {$s_{ij}$ (6)} (12.0, 1.0);
 
-% vacuity-weighted refinement
-\node[mod, text width=26mm, minimum height=13mm] (refine) at (19.5, 1.0)
-  {Vacuity-weighted\\refinement (III-E)\\{\scriptsize $E(\bm{\xi})$ (10)}};
-\node[mod, text width=24mm, minimum height=13mm] (corr) at (16.35, 1.0)
+% ---- row 2 (correction + fine + pose head), shifted under row 1 ----------
+\node[mod, text width=24mm, minimum height=13mm] (corr) at (3.50, -5.80)
   {Matching\\correction (III-D)\\{\scriptsize PnP on gated matches (8)}};
-\draw[flow] (13.85, 1.0) -- (corr.west);
+\node[mod, text width=26mm, minimum height=13mm] (refine) at (6.75, -5.80)
+  {Vacuity-weighted\\refinement (III-E)\\{\scriptsize $E(\bm{\xi})$ (10)}};
+\node[inner sep=0pt, draw=ink!55, line width=0.4pt] (wimg) at (6.75,-7.15)
+  {\includegraphics[width=12mm]{fig4/a_weight.png}};
+\node[sub, anchor=north] at (6.75,-7.58) {per-pixel weight $w$};
 \draw[flow] (corr.east) -- node[sym, above=0mm] {$T'_k$} (refine.west);
 
 % ---- calibrated pose head ----
-\node[mod, text width=21mm] (lap) at (22.85, 1.0)
+\node[mod, text width=21mm] (lap) at (10.15, -5.80)
   {Laplace cov.\ (11)\\{\scriptsize $\bm{\Sigma}_{\bm{\xi},k}\!\leftarrow\!\tau\hat\sigma^2(J^{\!\top}\!WJ)^{-1}$}};
 \draw[flow] (refine.east) -- node[sym, above=0mm] {$\bm{\xi}^\star_k$} (lap.west);
 % GMM glyph: overlapping covariance ellipses
-\begin{scope}[shift={(25.25, 0.82)}]
+\begin{scope}[shift={(12.55, -5.98)}]
   \draw[poseC!85, line width=0.6pt, rotate around={18:(0.32,0.28)}]
     (0.32,0.28) ellipse (4.6mm and 2.4mm);
   \draw[poseC!85, line width=0.6pt, rotate around={-12:(0.95,0.46)}]
@@ -120,9 +124,14 @@
   \fill[poseC] (0.32,0.28) circle (0.5pt);
   \fill[poseC] (0.95,0.46) circle (0.5pt);
 \end{scope}
-\node[sub, anchor=north, text width=26mm] at (25.9, 0.55)
+\node[sub, anchor=north, text width=26mm] at (13.20, -6.25)
   {$p(T|I_q,\mathcal{M})$ (12)\\condense $\rightarrow$ EKF};
-\draw[flow] (lap.east) -- (24.65, 1.0);
+\draw[flow] (lap.east) -- (11.95, -5.80);
+
+% ---- the serpentine turn: row 1 ends, row 2 begins -----------------------
+\draw[flow] (13.85, 1.0) -- (14.75, 1.0) -- (14.75, -4.12)
+            -- (1.30, -4.12) -- (1.30, -5.80) -- (corr.west);
+
 
 % ============================== BAND B ======================================
 % opinion simplex glyph
@@ -137,37 +146,31 @@
   \draw[outLn!70, line width=0.5pt] (0,-0.42) -- (0.44,-0.42) -- (0.22,-0.06) -- cycle;
   \node[font=\scriptsize\color{outLn}] at (0.68,-0.02) {$\oplus$};
   \draw[outLn, line width=0.6pt] (0.9,-0.28) -- (1.5,-0.28) -- (1.2,0.22) -- cycle;
-  \node[sub, anchor=north, text width=34mm] at (0.78,-0.56)
+  \node[sub, anchor=north, text width=30mm] at (0.52,-0.60)
     {conflict-aware fusion (4)\\$\tilde{u}{=}\min(1,u{+}\bar\eta)$};
 \end{scope}
 % vacuity heatmap glyph U_r
-\begin{scope}[shift={(15.4,-2.65)}]
-  \foreach \i/\c in {0/uLow, 1/uLow, 2/uMid, 3/uHigh}{
-    \foreach \j/\o in {0/55, 1/80, 2/40}{
-      \fill[\c!\o] (0.3*\i, 0.24*\j) rectangle +(0.3, 0.24);
-    }
-  }
-  \draw[ink!55, line width=0.4pt] (0,0) rectangle (1.2,0.72);
-  \node[sub, anchor=north] at (0.6,-0.08) {rendered vacuity $U_r$ (9)};
-\end{scope}
+\node[inner sep=0pt, draw=ink!55, line width=0.4pt] (urimg) at (10.95,-2.34)
+  {\includegraphics[width=12mm]{fig4/a_vacuity.png}};
+\node[sub, anchor=north] at (10.95,-2.86) {rendered $U_r$ (9)};
 % temperature chip
-\node[mod, draw=outLn, text width=16mm, font=\scriptsize\color{ink}] (temp) at (22.85,-2.4)
+\node[mod, draw=outLn, text width=16mm, font=\scriptsize\color{ink}] (temp) at (13.35,-2.45)
   {temperature $\tau$\\(held-out fit)};
 
 % the gold evidence rail
 \draw[evflow] (2.1,-2.1) -- node[sym, above=0mm] {$u$} (5.45,-2.35);
 \draw[evflow] (6.75,-2.35) -- (8.4,-2.5);
-\draw[evflow] (10.35,-2.5) -- node[sym, above=0mm] {$\tilde{u}_i$ per splat} (15.3,-2.35);
-\draw[evflow] (16.7,-2.35) -- (temp.west);
+\draw[evflow] (9.95,-2.34) -- node[sym, above=0.6mm, pos=0.45] {$\tilde{u}_i$ per splat} (urimg.west);
+\draw[evflow] (urimg.east) -- (temp.west);
 
-% four upward injections into Band A
+% injections: UP into row 1, DOWN into row 2 -- one channel, both bands
 \draw[inject] (9.35,-1.95) -- node[sym, right=0.2mm]
   {gate $e^{-\lambda_u(\tilde{u}^G_i+u^q_j)}$} (match.south);
-\draw[inject] (16.35,-2.0) -- node[sym, left=0.2mm]
-  {$\bar U_r{\le}u_{\max}$} (corr.south);
-\draw[inject] (19.5,-2.15) -- node[sym, right=0.2mm]
-  {$w{=}e^{-\gamma U_r}$} (refine.south);
-\draw[inject] (temp.north) -- node[sym, right=0.2mm] {$\tau$} (lap.south);
+\draw[inject] (10.25,-3.05) -- node[sym, left=0.2mm, pos=0.30, fill=white, inner sep=1pt]
+  {$\bar U_r{\le}u_{\max}$} (corr.north);
+\draw[inject] (11.65,-3.05) -- node[sym, right=0.2mm, pos=0.30, fill=white, inner sep=1pt]
+  {$w{=}e^{-\gamma U_r}$} (refine.north);
+\draw[inject] (temp.south) -- node[sym, right=0.2mm] {$\tau$} (lap.north);
 
 % ======================= PANELS (background layer) ==========================
 \begin{scope}[on background layer]
@@ -176,16 +179,16 @@
         fit={(edlhead) (0.2,1.95) (1.8,-3.35)}] (offpan) {};
   % coarse panel
   \node[fill=coarseBg, draw=coarseLn, rounded corners=3pt, inner sep=2.8mm,
-        fit={(enc) (match) (hyplab) (14.0,0.2)}] (cpan) {};
+        fit={(enc) (match) (hyplab) (13.9,0.2)}] (cpan) {};
   % fine panel
   \node[fill=fineBg, draw=fineLn, rounded corners=3pt, inner sep=2.8mm,
-        fit={(corr) (refine)}] (fpan) {};
+        fit={(corr) (refine) (wimg) (6.75,-7.75)}] (fpan) {};
   % calibrated pose head panel
   \node[fill=poseC!8, draw=poseC!60, rounded corners=3pt, inner sep=2.8mm,
-        fit={(lap) (27.0,0.35) (27.0,1.55)}] (ppan) {};
+        fit={(lap) (14.6,-6.45) (14.6,-5.25)}] (ppan) {};
   % evidence band
   \node[fill=outBg, draw=outLn!70, rounded corners=3pt, inner sep=2.8mm,
-        fit={(5.45,-1.8) (temp) (16.6,-3.4) (5.45,-3.4)}] (epan) {};
+        fit={(5.45,-1.8) (temp) (urimg) (14.3,-3.05) (5.45,-3.05)}] (epan) {};
 \end{scope}
 \node[panlab, anchor=south west] at (offpan.north west)
   {Offline: evidential mapping (III-A)};
