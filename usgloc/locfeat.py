@@ -471,6 +471,7 @@ def finetune_loc_feats(
     beta1: float = 0.9,
     seed: int = 0,
     log_every: int = 200,
+    cpu_opt_state: bool = False,
 ) -> Dict[str, torch.Tensor]:
     """Optimise ONLY the per-Gaussian descriptors against the SuperPoint maps.
 
@@ -501,10 +502,39 @@ def finetune_loc_feats(
     h, w = camera.height, camera.width
     lf = torch.nn.Parameter(init.clone().float())
     opt = torch.optim.Adam([lf], lr=lr, betas=(float(beta1), 0.999), eps=1e-15)
+    # 12Scenes maps reach 1.04M Gaussians, where Adam's m and v cost 2.1 GB on
+    # top of the 1 GB parameter and 1 GB gradient and the card runs out. Holding
+    # the state on the host and applying the SAME update in chunks is
+    # numerically identical to torch.optim.Adam (no amsgrad, no weight decay),
+    # so the field stays comparable with the 7Scenes ones.
+    _cpu = bool(cpu_opt_state)
+    if _cpu:
+        opt = None
+        _m = torch.zeros_like(lf, device="cpu")
+        _v = torch.zeros_like(lf, device="cpu")
+        _b1, _b2, _eps, _t = float(beta1), 0.999, 1e-15, 0
+        _CH = 65536
+
+    def _cpu_adam(cur_lr):
+        nonlocal _t
+        _t += 1
+        bc1 = 1.0 - _b1 ** _t
+        bc2 = 1.0 - _b2 ** _t
+        g_all = lf.grad
+        for a in range(0, lf.shape[0], _CH):
+            b = min(a + _CH, lf.shape[0])
+            g = g_all[a:b].to("cpu", non_blocking=False)
+            mm, vv = _m[a:b], _v[a:b]
+            mm.mul_(_b1).add_(g, alpha=1.0 - _b1)
+            vv.mul_(_b2).addcmul_(g, g, value=1.0 - _b2)
+            upd = (mm / bc1) / ((vv / bc2).sqrt_() + _eps)
+            lf.data[a:b].add_(upd.to(lf.device), alpha=-cur_lr)
     sched = None
+    _gamma = 1.0
     if lr_final is not None and iters > 1:
-        gamma = (lr_final / lr) ** (1.0 / (iters - 1))
-        sched = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=gamma)
+        _gamma = (lr_final / lr) ** (1.0 / (iters - 1))
+        if not _cpu:                      # no torch optimiser to attach to
+            sched = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=_gamma)
     g = torch.Generator().manual_seed(seed)
     ids = list(int(i) for i in frame_ids)
     trace: List[float] = []
@@ -530,16 +560,22 @@ def finetune_loc_feats(
             per = 1.0 - (fm * tgt).sum(dim=0, keepdim=True)
         denom = m.sum().clamp_min(1)
         L = (per * m).sum() / denom
-        opt.zero_grad(set_to_none=True)
-        L.backward()
-        opt.step()
+        if _cpu:
+            if lf.grad is not None:
+                lf.grad = None
+            L.backward()
+            _cpu_adam(lr * (_gamma ** it))
+        else:
+            opt.zero_grad(set_to_none=True)
+            L.backward()
+            opt.step()
         if sched is not None:
             sched.step()
         trace.append(float(L.detach()))
         del out, fm
         if log_every and it % log_every == 0:
             print(f"      locfeat ft {it}/{iters}  loss {trace[-1]:.5f}  "
-                  f"lr {opt.param_groups[0]['lr']:.2e}", flush=True)
+                  f"lr {(lr * (_gamma ** it)) if _cpu else opt.param_groups[0]['lr']:.2e}", flush=True)
     with torch.no_grad():
         final = F.normalize(lf.detach(), p=2, dim=-1)
     return {"loc_feats": final, "trace": trace}

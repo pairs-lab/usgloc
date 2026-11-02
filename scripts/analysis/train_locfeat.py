@@ -116,6 +116,9 @@ def main():
                          "then stored once on disk no matter how many fields you "
                          "compare.")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--cpu-opt-state", action="store_true",
+                    help="hold Adam m,v on the host; numerically identical, "
+                         "needed for the larger 12Scenes maps")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -214,7 +217,8 @@ def main():
         ft = locfeat.finetune_loc_feats(
             emap, ds, cam, enc, rend, train_ids, feats, iters=args.iters,
             lr=args.lr, lr_final=args.lr_final, min_alpha=args.min_alpha,
-            loss=args.loss, beta1=args.adam_beta1, seed=args.seed)
+            loss=args.loss, beta1=args.adam_beta1, seed=args.seed,
+            cpu_opt_state=args.cpu_opt_state)
         feats = ft["loc_feats"]
         tr = ft["trace"]
         k = max(1, len(tr) // 20)
