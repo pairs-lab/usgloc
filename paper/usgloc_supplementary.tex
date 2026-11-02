@@ -1041,7 +1041,7 @@ to assume a fixed noise model. Coverage, AUSE and ECE describe whether the
 covariance is \emph{honest}; they do not say whether it is \emph{useful}. We
 therefore test the motivating claim directly on continuous test sequences
 (one per scene, consecutive frames at stride 4), where a trajectory exists to
-filter. ACE re-run on the same frames (Sec.~\ref{sec:ace}) gives medians of 0.57, 1.11 and 3.90\,cm on the Chess, Redkitchen and Stairs sequences against our 0.67, 1.25 and 1.80\,cm; Fig.~\ref{fig:pairs} is drawn from these runs.
+filter. ACE re-run on the same frames (Sec.~\ref{sec:ace}) gives medians of 0.57, 1.11 and 3.90\,cm on the Chess, Redkitchen and Stairs sequences against our 0.67, 1.25 and 1.80\,cm; Fig.~6 of the letter is drawn from these runs.
 
 \subsection{Risk-aware rejection}
 The simplest use of a covariance needs no filter: discard the queries the
@@ -1603,7 +1603,7 @@ figures remain incomparable with Table~I of the letter. The run is kept
 %------------------------------------------------------------------------------
 \section{Additional Figures}
 \label{sec:figs}
-Fig.~\ref{fig:cdf} gives the paired per-query error CDF against ACE, Fig.~\ref{fig:pairs} paired qualitative examples in both directions, and Fig.~\ref{fig:qual-full} the qualitative panels of the letter.
+Fig.~\ref{fig:cdf} gives the paired per-query error CDF against ACE; the qualitative comparisons are Figs.~6 and~7 of the letter and are not repeated here.
 
 \begin{figure}[t]
 \centering
@@ -1612,40 +1612,6 @@ Fig.~\ref{fig:cdf} gives the paired per-query error CDF against ACE, Fig.~\ref{f
 \method{} against ACE re-run with its own solver on identical frames.
 \method{} has more of the most precise queries (26\% against 22\% under 0.5\,cm), ACE more under 1\,cm (58\% against 54\%) and a much shorter failure tail (3\% against 15\% beyond 5\,cm). Our residual error is concentrated in a tail of failures rather than spread over all queries, which is the regime in which a reported covariance matters; Sec.~\ref{sec:benefit} shows that the covariance identifies that tail.}
 \label{fig:cdf}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig7_pairs.pdf}
-\caption{Paired qualitative comparison with ACE on identical frames of the
-sequence runs of Sec.~\ref{sec:benefit} (query, render at our pose, at ACE's
-pose, at ground truth; errors below). Row 1: a confident, correct answer where
-ACE registers one tread off. Rows 2 and 3: our failures, announced --- the map
-has no content at the Chess viewpoint (the render at ground truth is empty),
-so the correction cannot register and $\sigma_t$ sits in the 96th percentile;
-on Redkitchen the reported $\sigma_t$ is in the 99th percentile. Row 4: a
-silent failure on Stairs, a confident registration on the wrong tread with
-$\sigma_t$ near the median, which is the failure mode named in the
-limitations. The selection is the largest disagreements in each direction
-and is disclosed in \texttt{fig7/selection.json}.}
-\label{fig:pairs}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\newcommand{\fpanel}[1]{\includegraphics[width=0.185\columnwidth]{fig4/#1}}
-\setlength{\tabcolsep}{1pt}
-\begin{tabular}{ccccc}
-\fpanel{a_query.png} & \fpanel{a_init.png} & \fpanel{a_refined.png} & \fpanel{a_vacuity.png} & \fpanel{a_weight.png}\\
-\fpanel{b_query.png} & \fpanel{b_init.png} & \fpanel{b_refined.png} & \fpanel{b_vacuity.png} & \fpanel{b_weight.png}\\
-{\scriptsize query} & {\scriptsize render @ $T_0$} & {\scriptsize render @ $\hat{T}$} & {\scriptsize vacuity $U_r$} & {\scriptsize weight $w$}\\
-\end{tabular}
-\caption{Query image, render at the retrieved coarse pose, render at the
-refined pose, rendered vacuity $U_r$ (bright = vacuous) and the per-pixel
-weight $w=e^{-\gamma U_r}$ on two Chess test queries (seq-03/909 and seq-05/454; final error 0.27\,cm/0.13$^\circ$ and 0.37\,cm/0.17$^\circ$). The weight is what
-the ablation of Sec.~\ref{sec:ablation-full} removes with $\gamma{=}0$; its
-effect is 28\% of the Stairs median.}
-\label{fig:qual-full}
 \end{figure}
 
 The convergence-versus-iteration comparison with and without the pixel
