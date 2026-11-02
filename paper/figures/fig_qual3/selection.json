@@ -1,0 +1,46 @@
+[
+ {
+  "scene": "chess",
+  "seq": "seq-05",
+  "frame": 878,
+  "e_ours": 0.13677446404471993,
+  "sig": 0.21752019947143622,
+  "e_ace": 0.25168781239184645,
+  "e_mp": 1.5779693725000616,
+  "sig_pct": 0.2,
+  "why": "we are right, and confident"
+ },
+ {
+  "scene": "stairs",
+  "seq": "seq-01",
+  "frame": 494,
+  "e_ours": 144.2995548248291,
+  "sig": 1160.3442993241438,
+  "e_ace": 3.067701119513698,
+  "e_mp": 6.504055438602567,
+  "sig_pct": 100.0,
+  "why": "we are wrong -- and we say so"
+ },
+ {
+  "scene": "fire",
+  "seq": "seq-04",
+  "frame": 636,
+  "e_ours": 0.40354402735829353,
+  "sig": 1.5953378168935048,
+  "e_ace": 5.126060603161549,
+  "e_mp": 2.784930416051706,
+  "sig_pct": 65.2,
+  "why": "ACE fails, we do not"
+ },
+ {
+  "scene": "office",
+  "seq": "seq-06",
+  "frame": 252,
+  "e_ours": 16.71309471130371,
+  "sig": 119.01376173266684,
+  "e_ace": 1.4546050774650336,
+  "e_mp": 3.695375671388497,
+  "sig_pct": 96.2,
+  "why": "ACE better than us"
+ }
+]
