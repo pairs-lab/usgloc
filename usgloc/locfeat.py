@@ -184,7 +184,12 @@ def pca_fit(feats: torch.Tensor, dim: int, max_rows: int = 200_000, seed: int = 
     mean = x.mean(dim=0)
     xc = x - mean
     cov = (xc.T @ xc) / max(x.shape[0] - 1, 1)
-    evals, evecs = torch.linalg.eigh(cov.double())
+    try:
+        evals, evecs = torch.linalg.eigh(cov.double())
+    except RuntimeError:
+        # cuSOLVER cannot create its handle once fine-tuning a large map has
+        # filled the card; the (D_src, D_src) problem is tiny on the host.
+        evals, evecs = (t.to(cov.device) for t in torch.linalg.eigh(cov.double().cpu()))
     basis = evecs[:, -int(dim):].flip(-1).float()
     kept = float(evals[-int(dim):].sum() / evals.clamp_min(0).sum())
     return mean.float(), basis.contiguous(), kept
