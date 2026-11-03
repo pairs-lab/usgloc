@@ -10,7 +10,9 @@ frames that are disjoint from the test split.
 
     python3 select_map.py            # all scenes
     python3 select_map.py chess fire # a subset
+    python3 select_map.py --dataset 12scenes --maps maps/rb0 apt2/luke
 """
+import argparse
 import sys
 from pathlib import Path
 
@@ -21,12 +23,19 @@ sys.path.insert(0, "/home/thanhnc/gauss_ws/src/usgloc")
 import os
 os.chdir("/home/thanhnc/gauss_ws/src/usgloc")
 
-from usgloc.datasets import SevenScenes, load_gaussian_map      # noqa: E402
+from usgloc.datasets import SevenScenes, TwelveScenes, load_gaussian_map  # noqa: E402
 from usgloc.rendering import GsplatRenderer                     # noqa: E402
 from usgloc.correction import EvidentialMatchCorrector, _to_gray  # noqa: E402
 
-PGT = "data/visloc_pseudo_gt_limitations/pgt/sfm/7scenes"
-SCENES = ["chess", "fire", "heads", "office", "pumpkin", "redkitchen", "stairs"]
+PGT = "data/visloc_pseudo_gt_limitations/pgt/sfm"
+DATASETS = {  # loader, root, scenes
+    "7scenes": (SevenScenes, "data/7scenes_source",
+                ["chess", "fire", "heads", "office", "pumpkin", "redkitchen", "stairs"]),
+    "12scenes": (TwelveScenes, "data/12scenes_source",
+                 ["apt1/kitchen", "apt1/living", "apt2/bed", "apt2/kitchen", "apt2/living",
+                  "apt2/luke", "office1/gates362", "office1/gates381", "office1/lounge",
+                  "office1/manolis", "office2/5a", "office2/5b"]),
+}
 N_FRAMES = 20
 
 
@@ -35,8 +44,8 @@ def err(Ta, Tb):
     return float(d[:3, 3].norm()) * 100
 
 
-def score(scene, suffix, ds, idx, cam, rend, dev):
-    mp = Path(f"maps/{scene}{suffix}.pt")
+def score(scene, suffix, ds, idx, cam, rend, dev, maps="maps"):
+    mp = Path(maps) / f"{scene.replace('/', '_')}{suffix}.pt"
     if not mp.is_file():
         return None
     emap = load_gaussian_map(str(mp))
@@ -46,6 +55,10 @@ def score(scene, suffix, ds, idx, cam, rend, dev):
     fl, ps = [], []
     for i in idx:
         img = ds.load_image(i).to(dev)
+        if img.shape[:2] != (cam.height, cam.width):  # 12Scenes colour is 1296x968
+            img = torch.nn.functional.interpolate(
+                img.permute(2, 0, 1)[None], size=(cam.height, cam.width),
+                mode="bilinear", align_corners=False)[0].permute(1, 2, 0).contiguous()
         T = ds[i].pose_cw.to(dev, torch.float32)
         out = rend.render(emap.means, emap.covs, emap.colors, emap.opacities,
                           T, cam, vacuity=emap.gaussian_vacuity, with_depth=True)
@@ -64,19 +77,25 @@ def score(scene, suffix, ds, idx, cam, rend, dev):
 
 
 def main():
-    scenes = sys.argv[1:] or SCENES
+    ap = argparse.ArgumentParser()
+    ap.add_argument("scenes", nargs="*")
+    ap.add_argument("--dataset", choices=tuple(DATASETS), default="7scenes")
+    ap.add_argument("--maps", default="maps", help="folder holding <scene>{,_hq}.pt")
+    args = ap.parse_args()
+    DS, root, all_scenes = DATASETS[args.dataset]
+    scenes = args.scenes or all_scenes
     dev = "cuda"
     rend = GsplatRenderer()
     print(f"{'scene':<11}{'variant':<9}{'splats':>9}{'PSNR@GT':>9}"
           f"{'floor cm':>10}{'ok':>7}   pick")
     picks = {}
     for s in scenes:
-        ds = SevenScenes("data/7scenes_source", s, split="train", sfm_pose_dir=PGT)
+        ds = DS(root, s, split="train", sfm_pose_dir=f"{PGT}/{args.dataset}")
         idx = torch.linspace(0, len(ds) - 1, N_FRAMES).round().long().unique().tolist()
         cam = ds.scene_camera(640, 480)
         rows = {}
         for suf, name in (("", "base"), ("_hq", "hq")):
-            r = score(s, suf, ds, idx, cam, rend, dev)
+            r = score(s, suf, ds, idx, cam, rend, dev, args.maps)
             if r:
                 rows[suf] = r
         if not rows:
@@ -90,7 +109,7 @@ def main():
                   f"{r['psnr']:9.2f}{r['floor']:10.3f}{100*r['ok']:6.0f}%{mark}")
     print("\nSELECTION (train-side, test never touched):")
     for s, suf in picks.items():
-        print(f"  {s:<11} -> maps/{s}{suf}.pt")
+        print(f"  {s:<11} -> {args.maps}/{s.replace('/', '_')}{suf}.pt")
 
 
 if __name__ == "__main__":
