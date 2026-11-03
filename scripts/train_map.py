@@ -102,6 +102,15 @@ def parse_args():
                          "small --fit-stride values fit")
     ap.add_argument("--psnr-frames", type=int, default=0,
                     help="evaluate the fit PSNR on this many training views at the end")
+    ap.add_argument("--depth-weight", type=float, default=0.0,
+                    help="weight of an L1 term between rendered and sensor depth (0 = off, "
+                         "the photometric-only recipe). Without it the fit leaves floaters in "
+                         "front of the camera wherever views disagree photometrically")
+    ap.add_argument("--depth-scale", default="auto",
+                    help="'auto' (median rendered/sensor ratio of the INITIAL Gaussians, which "
+                         "the large initial blobs bias short) or a float mapping metric sensor "
+                         "depth into the map frame; the SfM pseudo-GT of both datasets is metric, "
+                         "so 1.0")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     return ap.parse_args()
@@ -152,7 +161,9 @@ def main():
         ssim_lambda=args.ssim_lambda, sh_degree=args.sh_degree,
         sh_increase_every=args.sh_increase_every,
         strategy_kwargs=strat or None, store_views_uint8=args.views_uint8,
-        psnr_frames=args.psnr_frames,
+        psnr_frames=args.psnr_frames, depth_weight=args.depth_weight,
+        depth_scale=(None if str(args.depth_scale).lower() == "auto"
+                     else float(args.depth_scale)),
     )
     n = raw["means"].shape[0]
     print(f"      fitted {n} gaussians")
