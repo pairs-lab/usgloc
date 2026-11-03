@@ -309,31 +309,20 @@ GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & \textbf{0.39}/\textbf{0.13} & 0.91
 \centering
 \caption{Median translation/rotation error (cm/$^\circ$) on 12Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better. $\S$: as printed in ULF-Loc~\cite{ulfloc}. $\ast$: computed by us from the authors' published DSAC* estimates~\cite{brachmann2021dslam}. $\|$: overall median from the 12Scenes study of~\cite{marepo}, under the original D-SLAM poses; per-scene medians are not published (--). Ours: Table~\ref{tab:7scenes} configuration, seed 0, 100 test queries per scene; \res: scene still running.}
 \label{tab:12scenes}
-\setlength{\tabcolsep}{3.2pt}
-\footnotesize
-\begin{tabular}{lccccccc}
+\setlength{\tabcolsep}{2.8pt}
+\scriptsize
+\begin{tabular}{lccccccccccccc}
 \toprule
-& \multicolumn{2}{c}{Apartment 1} & \multicolumn{4}{c}{Apartment 2} & \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-7}
-Method & Kitchen & Living & Bed & Kitchen & Living & Luke & \\
+& \multicolumn{2}{c}{Apartment 1} & \multicolumn{4}{c}{Apartment 2} & \multicolumn{4}{c}{Office 1} & \multicolumn{2}{c}{Office 2} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-7}\cmidrule(lr){8-11}\cmidrule(lr){12-13}
+Method & Kitchen & Living & Bed & Kitchen & Living & Luke & Gates362 & Gates381 & Lounge & Manolis & 5a & 5b & Avg.\\
 \midrule
-PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & \\
-Marepo~\cite{marepo}$^\S$ & 1.90/1.20 & 1.70/0.90 & 2.00/1.00 & 2.10/1.10 & 1.80/0.90 & 2.30/1.30 & \\
-DSAC*~\cite{dsacstar}$^\ast$ & 0.39/0.24 & 0.40/0.18 & 0.38/0.18 & 0.37/0.19 & 0.69/0.33 & 0.62/0.26 & \\
-ACE~\cite{ace}$^\S$ & 0.53/0.27 & 0.60/0.19 & 0.49/0.20 & 0.63/0.26 & 0.59/0.23 & 0.76/0.27 & \\
-GSplatLoc~\cite{gsplatloc}$^\S$ & 1.31/0.24 & 0.68/0.21 & 1.42/0.24 & 0.67/0.26 & 0.54/0.19 & 1.84/0.31 & \\
-\textbf{\method{} (Ours)} & \res & \res & \res & \res & \res & \res & \\
-\midrule
-& \multicolumn{4}{c}{Office 1} & \multicolumn{2}{c}{Office 2} & \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-7}
-Method & Gates362 & Gates381 & Lounge & Manolis & 5a & 5b & Avg.\\
-\midrule
-PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & 9.40/3.90\\
-Marepo~\cite{marepo}$^\S$ & 1.70/0.90 & 2.40/1.20 & 1.90/1.00 & 1.90/0.90 & 2.00/0.90 & 2.90/1.10 & 2.10/1.04\\
-DSAC*~\cite{dsacstar}$^\ast$ & 0.42/0.18 & 0.68/0.33 & 0.54/0.20 & 0.58/0.29 & 0.76/0.32 & 0.73/0.27 & 0.55/0.25\\
-ACE~\cite{ace}$^\S$ & 0.69/0.22 & 0.81/0.32 & 0.84/0.21 & 0.76/0.28 & 0.86/0.33 & 0.82/0.28 & 0.70/0.26\\
-GSplatLoc~\cite{gsplatloc}$^\S$ & 1.82/0.26 & 1.99/0.26 & 0.64/0.22 & 0.78/0.27 & 3.66/0.37 & 0.94/0.27 & 1.36/0.26\\
-\textbf{\method{} (Ours)} & \res & \res & \res & \res & \res & \res & \res\\
+PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 9.40/3.90\\
+Marepo~\cite{marepo}$^\S$ & 1.90/1.20 & 1.70/0.90 & 2.00/1.00 & 2.10/1.10 & 1.80/0.90 & 2.30/1.30 & 1.70/0.90 & 2.40/1.20 & 1.90/1.00 & 1.90/0.90 & 2.00/0.90 & 2.90/1.10 & 2.10/1.04\\
+DSAC*~\cite{dsacstar}$^\ast$ & 0.39/0.24 & 0.40/0.18 & 0.38/0.18 & 0.37/0.19 & 0.69/0.33 & 0.62/0.26 & 0.42/0.18 & 0.68/0.33 & 0.54/0.20 & 0.58/0.29 & 0.76/0.32 & 0.73/0.27 & 0.55/0.25\\
+ACE~\cite{ace}$^\S$ & 0.53/0.27 & 0.60/0.19 & 0.49/0.20 & 0.63/0.26 & 0.59/0.23 & 0.76/0.27 & 0.69/0.22 & 0.81/0.32 & 0.84/0.21 & 0.76/0.28 & 0.86/0.33 & 0.82/0.28 & 0.70/0.26\\
+GSplatLoc~\cite{gsplatloc}$^\S$ & 1.31/0.24 & 0.68/0.21 & 1.42/0.24 & 0.67/0.26 & 0.54/0.19 & 1.84/0.31 & 1.82/0.26 & 1.99/0.26 & 0.64/0.22 & 0.78/0.27 & 3.66/0.37 & 0.94/0.27 & 1.36/0.26\\
+\textbf{\method{} (Ours)} & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res\\
 \bottomrule
 \end{tabular}
 \end{table*}
