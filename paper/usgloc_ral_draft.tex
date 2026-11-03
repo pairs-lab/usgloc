@@ -284,7 +284,7 @@ Accuracy is bounded by the map. Correcting from the ground-truth pose, which rem
 
 \begin{table*}[t]
 \centering
-\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}, and success rate at 5\,cm/5$^\circ$ and 2\,cm/2$^\circ$ averaged over scenes; best in bold, second underlined. $\dagger$: as reported by the authors. $\dagger r$: retrained under the SfM pseudo-GT, PoseNet by NeFeS~\cite{nefes} and Marepo by GS-CPR~\cite{gscpr}. $\dagger s$: medians as printed in STDLoc~\cite{stdloc}, whose sources report only success rates. Success rates are computed on our 100 test queries per scene: DSAC* from the authors' published estimates~\cite{brachmann2021dslam}, ACE (with its \texttt{dsacstar} solver) and Marepo from our runs of the released SfM pseudo-GT models; --: no per-frame estimates available. $m$: our correction run as a MASt3R~\cite{mast3r}$\,\to\,$descriptor-field cascade rather than LoFTR throughout; seed 0, 100 test queries per scene, one configuration for every scene.}
+\caption{Median translation/rotation error (cm/$^\circ$) on 7Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}, and success rate at 5\,cm/5$^\circ$ and 2\,cm/2$^\circ$ averaged over scenes; best in bold, second underlined. $\dagger$: as reported by the authors. $\dagger r$: retrained under the SfM pseudo-GT, PoseNet by NeFeS~\cite{nefes} and Marepo by GS-CPR~\cite{gscpr}. $\dagger s$: medians as printed in STDLoc~\cite{stdloc}, whose sources report only success rates. Success rates are computed on our 100 test queries per scene: DSAC* from the authors' published estimates~\cite{brachmann2021dslam}, ACE (with its \texttt{dsacstar} solver) and Marepo from our runs of the released SfM pseudo-GT models; GSplatLoc$^{b}$: 5\,cm/5$^\circ$ rate as reported for its Base setting (its Fine setting and PoseNet report no success rates); --: not available. $m$: our correction run as a MASt3R~\cite{mast3r}$\,\to\,$descriptor-field cascade rather than LoFTR throughout; seed 0, 100 test queries per scene, one configuration for every scene.}
 \label{tab:7scenes}
 \setlength{\tabcolsep}{2.2pt}
 \footnotesize
@@ -298,7 +298,7 @@ PoseNet~\cite{posenet}$^{\dagger r}$ & 10.00/4.02 & 27.00/10.00 & 18.00/13.00 & 
 Marepo~\cite{marepo}$^{\dagger r}$ & 1.90/0.83 & 2.30/0.92 & 2.10/1.24 & 2.90/0.93 & 2.50/0.88 & 2.90/0.98 & 5.90/1.48 & 2.90/1.04 & 83.43 & 34.29\\
 DSAC*~\cite{dsacstar}$^{\dagger s}$ & \underline{0.50}/\underline{0.17} & \underline{0.78}/\underline{0.29} & \underline{0.50}/0.34 & 1.19/0.35 & 1.19/0.29 & \textbf{0.72}/\textbf{0.21} & \underline{2.65}/\underline{0.78} & \underline{1.07}/0.35 & \textbf{97.71} & 82.14\\
 ACE~\cite{ace}$^{\dagger s}$ & 0.55/0.18 & 0.83/0.33 & 0.53/\underline{0.33} & \underline{1.05}/\textbf{0.29} & \underline{1.06}/\textbf{0.22} & \underline{0.77}/\textbf{0.21} & 2.89/0.81 & 1.10/\underline{0.34} & \underline{97.14} & \underline{82.71}\\
-GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & \textbf{0.39}/\textbf{0.13} & 0.91/\underline{0.29} & 0.94/0.50 & 1.41/\underline{0.32} & 1.41/0.26 & 1.32/0.29 & 3.44/0.82 & 1.40/0.37 & -- & --\\
+GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & \textbf{0.39}/\textbf{0.13} & 0.91/\underline{0.29} & 0.94/0.50 & 1.41/\underline{0.32} & 1.41/0.26 & 1.32/0.29 & 3.44/0.82 & 1.40/0.37 & 78.00$^{b}$ & --\\
 \textbf{\method{} (Ours, prior-free)}$^{m}$ & \textbf{0.39}/\textbf{0.13} & \textbf{0.51}/\textbf{0.22} & \textbf{0.48}/\textbf{0.31} & \textbf{1.04}/\underline{0.32} & \textbf{1.02}/\underline{0.23} & 0.86/\underline{0.22} & \textbf{1.43}/\textbf{0.43} & \textbf{0.82}/\textbf{0.27} & 96.43 & \textbf{87.14}\\
 \bottomrule
 \end{tabular}
@@ -307,22 +307,22 @@ GSplatLoc~\cite{gsplatloc}$^\dagger$ (Fine) & \textbf{0.39}/\textbf{0.13} & 0.91
 
 \begin{table*}[t]
 \centering
-\caption{Median translation/rotation error (cm/$^\circ$) on 12Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better. $\S$: as printed in ULF-Loc~\cite{ulfloc}. $\ast$: computed by us from the authors' published DSAC* estimates~\cite{brachmann2021dslam}. $\|$: overall median from the 12Scenes study of~\cite{marepo}, under the original D-SLAM poses; per-scene medians are not published (--). Ours: Table~\ref{tab:7scenes} configuration, seed 0, 100 test queries per scene; \res: scene still running.}
+\caption{Median translation/rotation error (cm/$^\circ$) on 12Scenes under the SfM pseudo-ground truth~\cite{brachmann2021dslam}; lower is better. $\S$: as printed in ULF-Loc~\cite{ulfloc}. $\ast$: computed by us from the authors' published DSAC* estimates~\cite{brachmann2021dslam}. $\|$: overall median from the 12Scenes study of~\cite{marepo}, under the original D-SLAM poses; per-scene medians are not published (--). Success (\%): rate at 5\,cm/5$^\circ$ and 2\,cm/2$^\circ$ averaged over scenes, on our 100 test queries per scene; DSAC* from its published estimates; --: no per-frame estimates published. Ours: Table~\ref{tab:7scenes} configuration, seed 0, 100 test queries per scene; \res: scene still running.}
 \label{tab:12scenes}
-\setlength{\tabcolsep}{2.8pt}
+\setlength{\tabcolsep}{1.6pt}
 \scriptsize
-\begin{tabular}{lccccccccccccc}
+\begin{tabular}{lccccccccccccccc}
 \toprule
-& \multicolumn{2}{c}{Apartment 1} & \multicolumn{4}{c}{Apartment 2} & \multicolumn{4}{c}{Office 1} & \multicolumn{2}{c}{Office 2} & \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-7}\cmidrule(lr){8-11}\cmidrule(lr){12-13}
-Method & Kitchen & Living & Bed & Kitchen & Living & Luke & Gates362 & Gates381 & Lounge & Manolis & 5a & 5b & Avg.\\
+& \multicolumn{2}{c}{Apartment 1} & \multicolumn{4}{c}{Apartment 2} & \multicolumn{4}{c}{Office 1} & \multicolumn{2}{c}{Office 2} & & \multicolumn{2}{c}{Success (\%)}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-7}\cmidrule(lr){8-11}\cmidrule(lr){12-13}\cmidrule(lr){15-16}
+Method & Kitchen & Living & Bed & Kitchen & Living & Luke & Gates362 & Gates381 & Lounge & Manolis & 5a & 5b & Avg. & 5/5 & 2/2\\
 \midrule
-PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 9.40/3.90\\
-Marepo~\cite{marepo}$^\S$ & 1.90/1.20 & 1.70/0.90 & 2.00/1.00 & 2.10/1.10 & 1.80/0.90 & 2.30/1.30 & 1.70/0.90 & 2.40/1.20 & 1.90/1.00 & 1.90/0.90 & 2.00/0.90 & 2.90/1.10 & 2.10/1.04\\
-DSAC*~\cite{dsacstar}$^\ast$ & 0.39/0.24 & 0.40/0.18 & 0.38/0.18 & 0.37/0.19 & 0.69/0.33 & 0.62/0.26 & 0.42/0.18 & 0.68/0.33 & 0.54/0.20 & 0.58/0.29 & 0.76/0.32 & 0.73/0.27 & 0.55/0.25\\
-ACE~\cite{ace}$^\S$ & 0.53/0.27 & 0.60/0.19 & 0.49/0.20 & 0.63/0.26 & 0.59/0.23 & 0.76/0.27 & 0.69/0.22 & 0.81/0.32 & 0.84/0.21 & 0.76/0.28 & 0.86/0.33 & 0.82/0.28 & 0.70/0.26\\
-GSplatLoc~\cite{gsplatloc}$^\S$ & 1.31/0.24 & 0.68/0.21 & 1.42/0.24 & 0.67/0.26 & 0.54/0.19 & 1.84/0.31 & 1.82/0.26 & 1.99/0.26 & 0.64/0.22 & 0.78/0.27 & 3.66/0.37 & 0.94/0.27 & 1.36/0.26\\
-\textbf{\method{} (Ours)} & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res\\
+PoseNet~\cite{posenet}$^{\|}$ & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 9.40/3.90 & -- & --\\
+Marepo~\cite{marepo}$^\S$ & 1.90/1.20 & 1.70/0.90 & 2.00/1.00 & 2.10/1.10 & 1.80/0.90 & 2.30/1.30 & 1.70/0.90 & 2.40/1.20 & 1.90/1.00 & 1.90/0.90 & 2.00/0.90 & 2.90/1.10 & 2.10/1.04 & -- & --\\
+DSAC*~\cite{dsacstar}$^\ast$ & 0.39/0.24 & 0.40/0.18 & 0.38/0.18 & 0.37/0.19 & 0.69/0.33 & 0.62/0.26 & 0.42/0.18 & 0.68/0.33 & 0.54/0.20 & 0.58/0.29 & 0.76/0.32 & 0.73/0.27 & 0.55/0.25 & 99.83 & 96.25\\
+ACE~\cite{ace}$^\S$ & 0.53/0.27 & 0.60/0.19 & 0.49/0.20 & 0.63/0.26 & 0.59/0.23 & 0.76/0.27 & 0.69/0.22 & 0.81/0.32 & 0.84/0.21 & 0.76/0.28 & 0.86/0.33 & 0.82/0.28 & 0.70/0.26 & -- & --\\
+GSplatLoc~\cite{gsplatloc}$^\S$ & 1.31/0.24 & 0.68/0.21 & 1.42/0.24 & 0.67/0.26 & 0.54/0.19 & 1.84/0.31 & 1.82/0.26 & 1.99/0.26 & 0.64/0.22 & 0.78/0.27 & 3.66/0.37 & 0.94/0.27 & 1.36/0.26 & -- & --\\
+\textbf{\method{} (Ours)} & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res & \res\\
 \bottomrule
 \end{tabular}
 \end{table*}
