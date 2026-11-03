@@ -707,10 +707,13 @@ def distill_clip_features(
         raise ValueError("FastSAM produced no masks on any distillation frame")
     observed = obs_count > 0
     clip_feats = feat_sum
-    mean_dir = clip_feats[observed].mean(dim=0)
+    # Only the direction of the mean is kept, so a sum by matmul does; it and the
+    # in-place division avoid two (N, d) copies (4-5 GB each at 2.8M Gaussians)
+    # that do not fit on a 12 GB card next to the features themselves.
+    mean_dir = observed.to(clip_feats.dtype) @ clip_feats
     mean_dir = mean_dir / mean_dir.norm().clamp_min(1e-8)
     clip_feats[~observed] = mean_dir
-    clip_feats = clip_feats / clip_feats.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    clip_feats.div_(clip_feats.norm(dim=-1, keepdim=True).clamp_min(1e-8))
     return clip_feats, obs_count, torch.stack(bank)
 
 
