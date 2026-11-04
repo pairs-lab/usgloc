@@ -460,6 +460,34 @@ def _gt_feature_map(encoder: SuperPoint, img: torch.Tensor, h: int, w: int
         return F.normalize(tgt, p=2, dim=1)[0]
 
 
+class _LeanNormalize(torch.autograd.Function):
+    """``F.normalize(x, dim=-1)`` whose backward saves only the row norms and
+    writes the gradient into the incoming one in place, in row chunks.  At 2.3M
+    Gaussians x 256 every (N, D) copy is 2.3 GB, and the autograd backward of
+    F.normalize holds two of them on top of the parameter and its gradient."""
+
+    _EPS, _CH = 1e-12, 65536
+
+    @staticmethod
+    def forward(ctx, x):
+        nrm = x.norm(dim=-1, keepdim=True).clamp_min(_LeanNormalize._EPS)
+        ctx.save_for_backward(x, nrm)
+        return x / nrm
+
+    @staticmethod
+    def backward(ctx, g):
+        x, nrm = ctx.saved_tensors
+        g = g.contiguous()
+        for a in range(0, x.shape[0], _LeanNormalize._CH):
+            b = min(a + _LeanNormalize._CH, x.shape[0])
+            n, d = x[a:b] / nrm[a:b], nrm[a:b]
+            gc = g[a:b]
+            # d(x/|x|) = (g - n (n.g)) / |x|; a clamped norm is a constant.
+            proj = (n * gc).sum(dim=-1, keepdim=True) * (d > _LeanNormalize._EPS)
+            gc.sub_(n * proj).div_(d)
+        return g
+
+
 def finetune_loc_feats(
     emap,
     ds,
@@ -555,7 +583,8 @@ def finetune_loc_feats(
         out = renderer.render(
             emap.means, emap.covs, emap.colors, emap.opacities, T, camera,
             vacuity=emap.gaussian_vacuity,
-            loc_feats=F.normalize(lf, p=2, dim=-1), feat_normalize=True,
+            loc_feats=_LeanNormalize.apply(lf) if _cpu else F.normalize(lf, p=2, dim=-1),
+            feat_normalize=True,
         )
         fm = out["feats"].permute(2, 0, 1)                 # (D, h, w)
         m = (out["alpha"] >= min_alpha)[None]
