@@ -533,7 +533,7 @@ def finetune_loc_feats(
         raise ValueError(f"loss must be l1 | cos, got {loss!r}")
     dev = emap.means.device
     h, w = camera.height, camera.width
-    lf = torch.nn.Parameter(init.clone().float())
+    lf = torch.nn.Parameter(init.to(dev, torch.float32, copy=True))
     opt = torch.optim.Adam([lf], lr=lr, betas=(float(beta1), 0.999), eps=1e-15)
     # 12Scenes maps reach 1.04M Gaussians, where Adam's m and v cost 2.1 GB on
     # top of the 1 GB parameter and 1 GB gradient and the card runs out. Holding
@@ -595,10 +595,9 @@ def finetune_loc_feats(
         denom = m.sum().clamp_min(1)
         L = (per * m).sum() / denom
         if _cpu:
-            if lf.grad is not None:
-                lf.grad = None
             L.backward()
             _cpu_adam(lr * (_gamma ** it))
+            lf.grad = None                # do not carry 1 (N, D) copy into the next forward
         else:
             opt.zero_grad(set_to_none=True)
             L.backward()

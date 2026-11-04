@@ -213,6 +213,9 @@ def main():
           f"{report['obs_median']:.0f} views/gaussian, {report['init_sec']:.0f}s")
 
     if args.iters > 0:
+        if args.cpu_opt_state:            # the fine-tune copies it back; free its (N, D) GPU copy
+            feats = feats.cpu(); del ini
+            torch.cuda.empty_cache()
         t_ft = time.time()
         ft = locfeat.finetune_loc_feats(
             emap, ds, cam, enc, rend, train_ids, feats, iters=args.iters,
