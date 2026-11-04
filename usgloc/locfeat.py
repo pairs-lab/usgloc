@@ -537,31 +537,28 @@ def finetune_loc_feats(
     opt = torch.optim.Adam([lf], lr=lr, betas=(float(beta1), 0.999), eps=1e-15)
     # 12Scenes maps reach 1.04M Gaussians, where Adam's m and v cost 2.1 GB on
     # top of the 1 GB parameter and 1 GB gradient and the card runs out. Holding
-    # the state on the host and applying the SAME update in chunks is
-    # numerically identical to torch.optim.Adam (no amsgrad, no weight decay),
-    # so the field stays comparable with the 7Scenes ones.
+    # the state on the host and applying the SAME update there is numerically
+    # identical to torch.optim.Adam (no amsgrad, no weight decay), so the field
+    # stays comparable with the 7Scenes ones.  The host step is torch's fused
+    # CPU Adam kernel (the one behind Adam(fused=True)) on a pinned host copy of
+    # the parameter: ~5x faster than chunked tensor ops at 2.3M Gaussians.
     _cpu = bool(cpu_opt_state)
     if _cpu:
         opt = None
-        _m = torch.zeros_like(lf, device="cpu")
-        _v = torch.zeros_like(lf, device="cpu")
-        _b1, _b2, _eps, _t = float(beta1), 0.999, 1e-15, 0
-        _CH = 65536
+        _p = torch.empty(lf.shape, dtype=torch.float32, pin_memory=True)
+        _p.copy_(lf.detach())
+        _g = torch.empty_like(_p, pin_memory=True)
+        _m = torch.zeros_like(_p)
+        _v = torch.zeros_like(_p)
+        _step = torch.zeros((), dtype=torch.float32)
+        _b1, _b2, _eps = float(beta1), 0.999, 1e-15
 
     def _cpu_adam(cur_lr):
-        nonlocal _t
-        _t += 1
-        bc1 = 1.0 - _b1 ** _t
-        bc2 = 1.0 - _b2 ** _t
-        g_all = lf.grad
-        for a in range(0, lf.shape[0], _CH):
-            b = min(a + _CH, lf.shape[0])
-            g = g_all[a:b].to("cpu", non_blocking=False)
-            mm, vv = _m[a:b], _v[a:b]
-            mm.mul_(_b1).add_(g, alpha=1.0 - _b1)
-            vv.mul_(_b2).addcmul_(g, g, value=1.0 - _b2)
-            upd = (mm / bc1) / ((vv / bc2).sqrt_() + _eps)
-            lf.data[a:b].add_(upd.to(lf.device), alpha=-cur_lr)
+        _g.copy_(lf.grad)
+        _step.add_(1)
+        torch._fused_adam_([_p], [_g], [_m], [_v], [], [_step], lr=float(cur_lr), beta1=_b1, beta2=_b2,
+                           weight_decay=0.0, eps=_eps, amsgrad=False, maximize=False)
+        lf.data.copy_(_p)
     sched = None
     _gamma = 1.0
     if lr_final is not None and iters > 1:
