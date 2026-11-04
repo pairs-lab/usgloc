@@ -73,6 +73,8 @@ def main():
     ap.add_argument("--ace-run", default="results/ace_dsacstar_100")
     ap.add_argument("--out", default="results/ace_pnpcov_100")
     ap.add_argument("--threshold", type=float, default=10.0, help="dsacstar inlier threshold (px)")
+    ap.add_argument("--pose-c2w", action="store_true",
+                    help="the ACE run stores camera-to-world poses (run_ace_released*.py); invert them")
     args = ap.parse_args()
     sys.path.insert(0, args.ace_repo)
     from ace_network import Regressor
@@ -92,6 +94,8 @@ def main():
             with torch.no_grad():
                 sc = net(x[None, None]).float()[0].numpy()
             T = np.array(r["T"]); T_gt, f = gt[name]
+            if args.pose_c2w:
+                T = np.linalg.inv(T)
             Sig, n_inl, s2 = pnp_covariance(sc, T, f, args.threshold)
             e = se3.relative_tangent(torch.tensor(T), torch.tensor(T_gt)).numpy()
             recs.append(dict(seq=r["seq"], frame_id=r["frame_id"], t_err=r["t_err"], r_err=r["r_err"],

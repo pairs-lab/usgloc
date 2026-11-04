@@ -3,12 +3,12 @@
 place, so a configuration change is a re-run of this script rather than a
 hunt through the prose.
 
-    python3 scripts/analysis/regen_numbers.py results/final_seed0 [results/final_seed1 ...]
+    python3 scripts/analysis/regen_numbers.py results/final_seed0 [results/final_seed1 ...] [--ace DIR]
 
 Per-scene medians are the median over the given seed directories (Table I
 convention); pooled/paired statistics use the FIRST directory (seed 0), the
 convention of every other table. ACE is results/ace_dsacstar_100 (identical
-frames). Floors come from results/floor_final_seed0.json when present.
+frames) unless --ace names another run with per-record "inliers". Floors come from results/floor_final_seed0.json when present.
 """
 import json
 import os
@@ -35,7 +35,11 @@ def load(d, s):
 
 
 def main():
-    dirs = sys.argv[1:] or ["results/final_seed0"]
+    global ACE
+    argv = sys.argv[1:]
+    if "--ace" in argv:
+        i = argv.index("--ace"); ACE = argv[i + 1]; del argv[i:i + 2]
+    dirs = argv or ["results/final_seed0"]
     d0 = dirs[0]
     # ---- Table I row (median over seeds) + per-seed rows
     per = {}

@@ -10,7 +10,7 @@ all 12 scenes are present.
     python scripts/analysis/fill_table2_12scenes.py --run results/v2_12scenes_seed0
     python scripts/analysis/fill_table2_12scenes.py --row posenet --run results/posenet_ours_100
 """
-import argparse, json
+import argparse, json, re
 from pathlib import Path
 import numpy as np
 
@@ -20,6 +20,40 @@ SCENES = ["apt1_kitchen", "apt1_living", "apt2_bed", "apt2_kitchen", "apt2_livin
           "office1_gates362", "office1_gates381", "office1_lounge", "office1_manolis",
           "office2_5a", "office2_5b"]
 ROWS = {"ours": "\\textbf{\\method{} (Ours)} & ", "posenet": "PoseNet~\\cite{posenet}"}
+
+
+def mark_best(blk, higher_better=()):
+    """Bold the best and underline the second-best value of every column of the
+    table body in ``blk`` (rows between \\midrule and \\bottomrule). A "t/r" cell
+    is ranked per part, lower is better; columns listed in ``higher_better``
+    (0-based, data columns only) are ranked higher-is-better. Ties share a mark
+    (dense ranking); "--" and \\res cells are skipped; old marks are removed first."""
+    a = blk.index("\\midrule") + len("\\midrule"); b = blk.index("\\bottomrule")
+    unmark = lambda c: re.sub(r"\\(?:textbf|underline)\{([0-9.]+)\}", r"\1", c)
+    rows = []
+    for line in blk[a:b].strip("\n").split("\n"):
+        head, _, tail = line.partition(" & ")
+        body, _, end = tail.rpartition("\\\\")
+        rows.append([head, [unmark(c.strip()) for c in body.split(" & ")], "\\\\" + end])
+    num = re.compile(r"^(\d+\.\d+)(?:/(\d+\.\d+))?(.*)$")
+    for j in range(len(rows[0][1])):
+        parsed = [num.match(r[1][j]) for r in rows]
+        marks = []                                   # per part: value -> mark, from the unmarked values
+        for part in (1, 2):
+            vals = sorted({float(m.group(part)) for m in parsed if m and m.group(part)},
+                          reverse=j in higher_better)
+            marks.append(dict(zip(vals[:2], ("textbf", "underline"))))
+        for r, m in zip(rows, parsed):
+            if not m:
+                continue
+            g = [m.group(1), m.group(2)]
+            for part in (0, 1):
+                mk = g[part] is not None and marks[part].get(float(g[part]))
+                if mk:
+                    g[part] = f"\\{mk}{{{g[part]}}}"
+            r[1][j] = g[0] + (f"/{g[1]}" if g[1] is not None else "") + m.group(3)
+    out = "\n".join(h + " & " + " & ".join(c) + e for h, c, e in rows)
+    return blk[:a] + "\n" + out + "\n" + blk[b:]
 
 
 def main():
@@ -47,6 +81,7 @@ def main():
     else:
         cells += ["\\res"] * 3
     blk = blk[:head] + " & ".join(cells) + blk[end:]
+    blk = mark_best(blk, higher_better=(13, 14))       # 12 scenes + Avg are medians; then SR 5/5, 2/2
     TEX.write_text(tex[:a] + blk + tex[b:])
     print(f"{len(res)}/12 scenes filled")
     for s, (t, r, c, d, m) in res.items():

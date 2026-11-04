@@ -112,7 +112,9 @@ def max_coverage(score, err, thr=5.0, risk=0.05):
 def main():
     ap_ = argparse.ArgumentParser()
     ap_.add_argument("run", nargs="?", default="results/v2_seed0")
+    ap_.add_argument("--ace", default=ACE, help="ACE run with per-record inliers")
     a = ap_.parse_args()
+    globals()["ACE"] = a.ace
     oe, os_, ae, ai, sc = load(a.run)
     if not len(oe):
         sys.exit(f"no paired records under {a.run}")
