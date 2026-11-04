@@ -27,5 +27,6 @@ __pycache__/
 *.lot
 *.lof
 
-# Run reports: local audit trail, not versioned
-docs/reports/
+# Paper sources, notes and run reports: kept locally, not versioned
+paper/
+docs/

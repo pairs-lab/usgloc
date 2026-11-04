@@ -1,6 +1,6 @@
 # USGLoc — Uncertainty-Aware Semantic Visual Localization from 3D Gaussian Splatting
 
-Reference implementation of the RA-L draft in [`paper/usgloc_ral_draft.tex`](paper/usgloc_ral_draft.tex):
+Reference implementation of the USGLoc RA-L paper:
 a semantic 3DGS localizer that outputs a **calibrated distribution** over camera
 pose (a Gaussian mixture on SE(3)) instead of a point estimate, by propagating
 evidential (Dempster–Shafer) semantic uncertainty end-to-end from the map to
@@ -58,10 +58,6 @@ NLL) for:
 For real data, `scripts/run_7scenes.py` runs the same protocol on 7Scenes given
 an externally trained evidential 3DGS map (`usgloc.datasets.load_gaussian_map`
 documents the bridge format) and trained retrieval encoders.
-
-`paper/fig3_calibration_template.py` regenerates the calibration figure
-referenced in the draft (`paper/fig3_calibration_template.pdf`); replace its
-synthetic block with arrays from `results/demo_results.json` or your real runs.
 
 ## Using a real scene
 
