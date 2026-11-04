@@ -30,3 +30,6 @@ __pycache__/
 # Paper sources, notes and run reports: kept locally, not versioned
 paper/
 docs/
+
+# Narration script written next to the video; kept locally
+media/*_script.md
