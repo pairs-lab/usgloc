@@ -3,7 +3,7 @@ USGLoc: Uncertainty-Aware Semantic Visual Localization from 3D Gaussian Splattin
 
 **IEEE Robotics and Automation Letters (under review)**
 
-[Paper (coming soon)]() | [Video (coming soon)]()
+[Paper (coming soon)]() | [Video](media/USGLoc_video.mp4)
 
 ![teaser](media/teaser.png)
 
