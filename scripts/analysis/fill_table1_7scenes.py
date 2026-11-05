@@ -9,6 +9,9 @@ Avg. is the mean of the per-scene medians, the rates are the mean of the per-sce
 marks of the whole table are recomputed (fill_table2_12scenes.mark_best).
     python scripts/analysis/fill_table1_7scenes.py results/v2_7scenes_seed0 results/v2_7scenes_seed1 results/v2_7scenes_seed2
     python scripts/analysis/fill_table1_7scenes.py --row posenet results/posenet_ours_100
+    python scripts/analysis/fill_table1_7scenes.py --row gsplatloc results/gsplatloc_100
+GSplatLoc: the medians stay as published (Fine setting); only the two success rates come from our runs of its
+released code (Base setting), scored like PoseNet.
 """
 import argparse
 import json
@@ -25,7 +28,8 @@ from fill_table2_12scenes import mark_best  # noqa: E402
 
 TEX = ROOT / "paper/usgloc_ral_draft.tex"
 SCENES = ["chess", "fire", "heads", "office", "pumpkin", "redkitchen", "stairs"]
-ROWS = {"ours": "\\textbf{\\method{} (Ours, prior-free)}", "posenet": "PoseNet~\\cite{posenet}"}
+ROWS = {"ours": "\\textbf{\\method{} (Ours, prior-free)}", "posenet": "PoseNet~\\cite{posenet}",
+        "gsplatloc": "GSplatLoc~\\cite{gsplatloc}"}
 REF = ROOT / "results/v2_7scenes_seed0"        # the query list of every row
 
 
@@ -39,8 +43,8 @@ def ours(runs, s):
     return [float(np.median([x[k] for x in st])) for k in ("med_t", "med_r", "sr55", "sr22")]
 
 
-def posenet(runs, s):
-    assert len(runs) == 1, "--row posenet takes one run"
+def posenet(runs, s):   # one baseline run on our queries (PoseNet, GSplatLoc)
+    assert len(runs) == 1, "a baseline row takes one run"
     j = json.load(open(runs[0] / f"7scenes_{s}.json"))
     assert keys(j) == keys(json.load(open(REF / f"7scenes_{s}.json"))), f"{s}: not our 100 queries"
     t = np.array([100 * r["t_err"] for r in j["records"]]); r = np.array([r["r_err"] for r in j["records"]])
@@ -63,6 +67,8 @@ def main():
     blk = tex[a_:b_]
     pos = blk.index(ROWS[a.row]); head = blk.index(" & ", pos) + 3; end = blk.index("\\\\", pos)
     old = blk[head:end]
+    if a.row == "gsplatloc":                        # keep the published medians, replace the success rates
+        cells = old.split(" & ")[:8] + cells[8:]
     blk = blk[:head] + " & ".join(cells) + blk[end:]
     blk = mark_best(blk, higher_better=(8, 9))       # 7 scenes + Avg are medians; then SR 5/5, 2/2
     TEX.write_text(tex[:a_] + blk + tex[b_:])
