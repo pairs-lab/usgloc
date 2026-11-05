@@ -1,127 +1,136 @@
 1
-00:00:00,817 --> 00:00:07,717
-USGLoc: uncertainty-aware semantic visual localization from
-3D Gaussian splatting.
+00:00:00,817 --> 00:00:05,042
+USGLoc: uncertainty-aware visual localization.
 
 2
-00:00:09,317 --> 00:00:13,592
+00:00:06,650 --> 00:00:10,925
 A robot fuses every camera pose into its state estimator.
 
 3
-00:00:13,942 --> 00:00:18,317
-That fusion is only as good as the uncertainty attached to
-each pose.
+00:00:11,275 --> 00:00:15,025
+Fusion is only as good as the uncertainty of each pose.
 
 4
-00:00:18,667 --> 00:00:23,317
+00:00:15,375 --> 00:00:20,025
 Yet most localizers return a single pose, with no
 confidence.
 
 5
-00:00:23,667 --> 00:00:26,292
+00:00:20,375 --> 00:00:23,000
 How much should the robot trust this pose?
 
 6
-00:00:28,700 --> 00:00:33,225
+00:00:24,608 --> 00:00:28,433
+Regressors such as Marepo and ACE return one pose.
+
+7
+00:00:28,783 --> 00:00:32,583
+So do splatting localizers, such as GSplatLoc.
+
+8
+00:00:32,933 --> 00:00:37,883
+To our knowledge, no splatting localizer returns a pose
+distribution.
+
+9
+00:00:40,283 --> 00:00:44,808
 USGLoc keeps one uncertainty channel, from the map to the
 pose.
 
-7
-00:00:33,575 --> 00:00:40,000
-Every Gaussian carries a Dempster-Shafer belief, with an
-explicit vacuity mass for missing evidence.
+10
+00:00:45,158 --> 00:00:51,008
+Every Gaussian carries a Dempster-Shafer belief, with a
+vacuity mass for missing evidence.
 
-8
-00:00:40,350 --> 00:00:46,975
+11
+00:00:51,358 --> 00:00:57,058
 The query passes through the same head, and vacuity gates
-semantic matching into a few pose hypotheses.
+matching into a few hypotheses.
 
-9
-00:00:47,325 --> 00:00:52,050
+12
+00:00:57,408 --> 00:01:02,133
 A render-and-match correction then snaps each hypothesis
 into place.
 
-10
-00:00:52,400 --> 00:00:57,525
-Rendered like color, vacuity also weights the refinement,
-pixel by pixel.
+13
+00:01:02,483 --> 00:01:07,033
+Rendered like color, vacuity also weights the refinement per
+pixel.
 
-11
-00:00:57,875 --> 00:01:06,050
+14
+00:01:07,383 --> 00:01:15,558
 A tempered Laplace approximation turns each hypothesis into
 a covariance: a Gaussian mixture over SE(3).
 
-12
-00:01:08,650 --> 00:01:12,725
-Demo one: the Stairs scene of 7Scenes, our best case.
-
-13
-00:01:13,075 --> 00:01:16,350
-Left: the query and the map rendered at our pose.
-
-14
-00:01:16,700 --> 00:01:21,425
-Right: our pose and its two-sigma covariance, with ACE and
-Marepo.
-
 15
-00:01:21,775 --> 00:01:29,500
-Here our median error is 1.4 centimeters, against 2.9 for
-ACE and 3.4 for GSplatLoc.
+00:01:18,192 --> 00:01:22,117
+Demo one: Stairs, our best case on 7Scenes.
 
 16
-00:01:29,850 --> 00:01:35,050
+00:01:22,467 --> 00:01:26,467
+Top: the query, and the map rendered at each method's pose.
+
+17
+00:01:26,817 --> 00:01:31,492
+Bottom: a third-person view of the map, with our two-sigma
+covariance.
+
+18
+00:01:31,842 --> 00:01:39,642
+Here our median error is 1.5 centimeters, against 2.9 for
+ACE and 3.4 for GSplatLoc.
+
+19
+00:01:39,992 --> 00:01:45,192
 On the queries where we fail, our reported uncertainty is 15
 times larger.
 
-17
-00:01:37,650 --> 00:01:42,300
-Demo two: Apartment 2 Kitchen of 12Scenes, our best case
-there.
+20
+00:01:47,817 --> 00:01:52,242
+Demo two: Apartment 2 Kitchen, our best case on 12Scenes.
 
-18
-00:01:42,650 --> 00:01:50,825
+21
+00:01:52,592 --> 00:02:00,767
 Our median error is 0.4 centimeters, against 0.6 for ACE and
 0.7 for GSplatLoc.
 
-19
-00:01:51,175 --> 00:01:57,575
+22
+00:02:01,117 --> 00:02:07,517
 Across the 12 scenes, USGLoc is more accurate than every
 baseline shown on 7 of them.
 
-20
-00:01:59,792 --> 00:02:02,792
+23
+00:02:09,750 --> 00:02:12,750
 Demo three: what the uncertainty is worth.
 
-21
-00:02:03,142 --> 00:02:07,367
-We keep only the half of the queries that each method trusts
-most.
+24
+00:02:13,100 --> 00:02:16,700
+We keep the half of the queries each method trusts most.
 
-22
-00:02:07,717 --> 00:02:20,867
+25
+00:02:17,050 --> 00:02:30,200
 Our median error drops from 0.77 to 0.50 centimeters; ACE
 drops to 0.60 with a PnP covariance, and to 0.70 with its
 inlier count.
 
-23
-00:02:21,217 --> 00:02:25,192
+26
+00:02:30,550 --> 00:02:34,525
 The poses USGLoc trusts most are the most accurate.
 
-24
-00:02:26,817 --> 00:02:35,192
+27
+00:02:36,150 --> 00:02:44,525
 On 7Scenes, USGLoc has the lowest average error and the
 highest success rate at two centimeters and two degrees.
 
-25
-00:02:35,542 --> 00:02:40,117
+28
+00:02:44,875 --> 00:02:49,450
 And it is the only method here that reports how much to
 trust its pose.
 
-26
-00:02:41,733 --> 00:02:45,508
+29
+00:02:51,067 --> 00:02:54,842
 USGLoc: a pose, and how much to trust it.
 
-27
-00:02:45,858 --> 00:02:48,633
+30
+00:02:55,192 --> 00:02:57,967
 Code and video are linked in the paper.
