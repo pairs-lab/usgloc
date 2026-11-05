@@ -33,3 +33,6 @@ docs/
 
 # Narration script written next to the video; kept locally
 media/*_script.md
+
+# Internal analysis notes; kept locally
+ANALYSIS.md
