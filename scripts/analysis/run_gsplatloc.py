@@ -36,6 +36,14 @@ untouched; each replacement must match exactly once or the run stops):
   P3 localize_set: query image moved to the GPU (images live on the CPU with --data_device cpu; the
      released code assumes the default cuda device). No numerical change.
   P4 localize_set: records the coarse (PnP) and final pose of each view; nothing else changes.
+  P5 only with --zero-feature-bg, training only: the released rasterizer (cuda_rasterizer/forward.cu:394)
+     writes feature = SF[ch] + T * bg_color[ch] for all NUM_SEMANTIC_CHANNELS (64) channels, but train.py's
+     background holds 3 values, so channels 3..63 read past its end (uninitialised GPU memory): a finite
+     value biases the channel, a NaN makes the logged loss NaN and, as sign(NaN) = 0 in the L1 backward, leaves
+     that channel untrained (7Scenes Fire, RedKitchen; 12Scenes Gates362, Gates381, Manolis, 5b).
+     train.py's render() gets the background zero-padded to 64 values: RGB and depth bit-identical, feature
+     background 0. Localization renders only RGB and depth and is not patched.
+After training, non-finite values or never-trained (all-zero) feature channels stop the run (exit 1).
 """
 from __future__ import annotations
 
@@ -75,7 +83,7 @@ def paths(a):
         ref = WORK / "downloads/12scenes_ref/12scenes_reference_models" / a.scene / a.init_model
     ours = ROOT / f"results/v2_{a.dataset}_seed0/{k}.json"
     out = (ROOT / a.out if not os.path.isabs(a.out) else Path(a.out)) / f"{k}.json"
-    return dict(key=k, frames=frames, src=src, model=model, ref=ref, ours=ours, out=out,
+    return dict(key=k, dataset=a.dataset, scene=a.scene, frames=frames, src=src, model=model, ref=ref, ours=ours, out=out,
                 logs=WORK / "logs" / a.init_model)
 
 
@@ -110,8 +118,26 @@ def parse_image_name(ds, name):
 
 
 def load_ours(p):
+    """Our queries of this scene, in our run's order: the records of results/v2_<ds>_seed0/<key>.json plus a stub
+    (seq, frame_id, T_gt, skipped_by_ours) for each query our run skipped (<2 instances, our failure), so that
+    GSplatLoc runs on all of them. Query rule of scripts/run_7scenes.py: linspace(0, n_test - 1, queries)
+    .round().unique() over the SfM test split (it reproduces the records of all 19 scenes exactly)."""
     d = json.load(open(p["ours"]))
-    return d["records"]
+    recs, n = d["records"], int(d.get("args", {}).get("queries", 0))
+    if len(recs) >= n:
+        return recs
+    import torch
+    sys.path.insert(0, str(ROOT))
+    from usgloc.datasets import SevenScenes, TwelveScenes
+    DS = SevenScenes if p["dataset"] == "7scenes" else TwelveScenes
+    te = DS(str(ROOT / f"data/{p['dataset']}_source"), p["scene"], split="test", sfm_pose_dir=str(PGT / p["dataset"]))
+    idx = torch.linspace(0, len(te) - 1, min(n, len(te))).round().long().unique().tolist()
+    by = {(r["seq"], r["frame_id"]): r for r in recs}
+    full = [by.get((te.frames[i].seq, te.frames[i].frame_id)) or
+            {"seq": te.frames[i].seq, "frame_id": te.frames[i].frame_id, "T_gt": te.frames[i].pose_cw.tolist(),
+             "skipped_by_ours": True} for i in idx]
+    assert [r for r in full if not r.get("skipped_by_ours")] == recs, "our records do not follow the query rule"
+    return full
 
 
 # --------------------------------------------------------------------------------------------- prepare
@@ -408,6 +434,21 @@ def apply_reader_patches(a):
     return [r[1].strip() for r in reps]
 
 
+def apply_feature_bg_patch(gsl_train):
+    """P5: train.py's render() gets its background zero-padded to the rasterizer's NUM_SEMANTIC_CHANNELS."""
+    import torch
+    cfg = (GSL_REPO / "submodules/diff-gaussian-rasterization/cuda_rasterizer/config.h").read_text()
+    n = int(re.search(r"#define NUM_SEMANTIC_CHANNELS (\d+)", cfg).group(1))
+    released = gsl_train.render
+
+    def render(viewpoint_camera, pc, pipe, bg_color, *args, **kwargs):
+        if bg_color.numel() < n:
+            bg_color = torch.cat([bg_color, bg_color.new_zeros(n - bg_color.numel())])
+        return released(viewpoint_camera, pc, pipe, bg_color, *args, **kwargs)
+    gsl_train.render = render
+    return f"P5 train.py render(): background zero-padded from 3 to {n} values (forward.cu:394 reads bg_color[ch] for every feature channel)"
+
+
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
     return port
@@ -424,6 +465,8 @@ def cmd_train(a):
     if (p["model"] / "point_cloud" / f"iteration_{a.iterations}").exists() and not a.force:
         print(f"trained model exists: {p['model']} (use --force to retrain)"); return
     patches = apply_reader_patches(a)
+    if a.zero_feature_bg:
+        patches.append(apply_feature_bg_patch(gsl_train))
     # == train.py __main__, with our paths
     parser = argparse.ArgumentParser(description="Training script parameters")
     lp, op, pp = ModelParams(parser), OptimizationParams(parser), PipelineParams(parser)
@@ -454,13 +497,24 @@ def cmd_train(a):
     wall = time.time() - t0
     from plyfile import PlyData
     ply = p["model"] / "point_cloud" / f"iteration_{a.iterations}" / "point_cloud.ply"
-    n_g = PlyData.read(str(ply))["vertex"].count
+    import numpy as np
+    v = PlyData.read(str(ply))["vertex"]
+    n_g = v.count
+    names = [q.name for q in v.properties]
+    sem = [q for q in names if q.startswith("semantic_")]
+    finite = all(np.isfinite(np.asarray(v[q])).all() for q in sem + ["x", "y", "z", "opacity"])
+    dead = [q for q in sem if not np.any(np.asarray(v[q]))]   # never trained: a NaN in that rendered channel (P5)
     meta = dict(argv=argv, patches=patches, rasterizer_debug=a.rasterizer_debug, wall_s=wall, n_gaussians=n_g,
                 peak_mem_allocated_gb=torch.cuda.max_memory_allocated() / 2**30,
                 peak_mem_reserved_gb=torch.cuda.max_memory_reserved() / 2**30,
-                gpu=torch.cuda.get_device_name(0), finished=datetime.now().isoformat())
+                gpu=torch.cuda.get_device_name(0), feature_dims=len(sem), feature_field_finite=finite,
+                dead_feature_channels=dead,
+                finished=datetime.now().isoformat())
     json.dump(meta, open(p["model"] / "usgloc_train_meta.json", "w"), indent=1)
     print("\nTraining complete.", json.dumps(meta))
+    if not finite or dead:
+        sys.exit(f"trained model {ply}: finite {finite}, never-trained feature channels {len(dead)}/{len(sem)} "
+                 "(a NaN in the rendered feature map; see P5, --zero-feature-bg); its localization would be invalid")
 
 
 # -------------------------------------------------------------------------------------------- localize
@@ -535,7 +589,8 @@ def cmd_localize(a):
         "principal_point": man["principal_point"], "resize": man["resize"],
         "train": {"iterations": a.iterations, "data_device": a.data_device, "features_on_cpu": a.features_on_cpu,
                   "other_params": "GSplatLoc arguments/__init__.py defaults", **{k: tm.get(k) for k in
-                  ("wall_s", "n_gaussians", "peak_mem_allocated_gb", "peak_mem_reserved_gb", "gpu")}},
+                  ("wall_s", "n_gaussians", "peak_mem_allocated_gb", "peak_mem_reserved_gb", "gpu", "patches",
+                   "feature_field_finite", "dead_feature_channels")}},
         "localize": {"iteration": a.iterations, "top_k": a.top_k, "ransac_iters": a.ransac_iters,
                      "warp_lr": a.warp_lr, "warp_iters": a.warp_iters, "load_s": t_load, "wall_s": t_loc,
                      "peak_mem_allocated_gb": torch.cuda.max_memory_allocated() / 2**30},
@@ -549,6 +604,7 @@ def cmd_localize(a):
                 "numpy": np.__version__, "opencv": cv2.__version__, "kornia": kornia.__version__,
                 "gpu": torch.cuda.get_device_name(0)},
         "model_path": str(p["model"]), "source_path": str(p["src"]), "queries_from": str(p["ours"]),
+        "queries_skipped_by_ours": [[r["seq"], r["frame_id"]] for r in load_ours(p) if r.get("skipped_by_ours")],
         "date": datetime.now().isoformat(),
     }
     n_bad = len(load_ours(p)) - sum(1 for e in li._USGLOC_RECORDS.values()
@@ -568,6 +624,7 @@ def cmd_all(a):
             "--top-k", str(a.top_k), "--ransac-iters", str(a.ransac_iters), "--warp-lr", str(a.warp_lr),
             "--warp-iters", str(a.warp_iters), "--out", a.out, "--max-failures", str(a.max_failures)]
     opts += ["--features-on-cpu"] * a.features_on_cpu + ["--rasterizer-debug"] * a.rasterizer_debug + ["--force"] * a.force
+    opts += ["--zero-feature-bg"] * a.zero_feature_bg
     for stage in ("prepare", "check", "train", "localize"):
         log = p["logs"] / f"{p['key']}_{stage}.log"
         cmd = [sys.executable, str(Path(__file__).resolve()), stage, a.dataset, a.scene] + opts
@@ -591,6 +648,8 @@ def main():
     ap.add_argument("--data-device", default="cpu", choices=["cpu", "cuda"])
     ap.add_argument("--features-on-cpu", action="store_true", help="memory fallback (patch P2)")
     ap.add_argument("--rasterizer-debug", action="store_true", help="released default (slow, same numbers)")
+    ap.add_argument("--zero-feature-bg", action="store_true",
+                    help="training: zero-pad the background read by every feature channel (patch P5)")
     ap.add_argument("--top-k", type=int, default=1000)
     ap.add_argument("--ransac-iters", type=int, default=20000)
     ap.add_argument("--warp-lr", type=float, default=0.001, help="paper: 0.001; code default 0.0005")
