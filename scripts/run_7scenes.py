@@ -49,6 +49,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from usgloc import se3
+from usgloc import timing as _timing
 from usgloc.datasets import SevenScenes, TwelveScenes, load_gaussian_map
 from usgloc.posterior import _project_pd
 from usgloc.descriptors import InstanceDescriptorNet, SceneAggregator
@@ -1071,6 +1072,7 @@ def main():
                 "nll_mixture": res.posterior.nll(T_gt),
                 "psnr": max(res.psnrs),
                 "t_encode_s": t1 - t0, "t_localize_s": t2 - t1,
+                **({"t_stages": dict(_timing.TIMES)} if _timing.ON else {}),   # USGLOC_TIMING=1 only
                 "snapped": bool(res.snapped[k_dom]) if res.snapped else False,
                 "inliers": int(res.inliers[k_dom]) if res.inliers else 0,
                 # pose + covariance, so downstream fusion can be evaluated

@@ -21,6 +21,7 @@ from .matching import PoseHypothesis, retrieve_hypotheses
 from .posterior import PoseGaussian, PoseMixture
 from .primitives import EvidentialMap
 from .refinement import refine_pose
+from . import timing as _timing
 from .rendering import Camera
 
 
@@ -444,6 +445,7 @@ class USGLocPipeline:
                 "localize(): gray_full is required when a corrector is "
                 "attached (pass the full-resolution query luma, or build "
                 "the pipeline without corrector=)")
+        _timing.start()
         if prior is not None:
             # Prior-refinement setting (the regime GS-CPR, STDLoc, UGS-Loc and
             # SplatHLoc operate in): an external pose replaces our retrieval
@@ -544,6 +546,7 @@ class USGLocPipeline:
             )[0].permute(1, 2, 0).contiguous()
             stages.append((cam_s, img_s, it))
 
+        _timing.tick("matching")
         # --- Evidential matching correction (Sec. IV-E): snap every
         # candidate with LoFTR + vacuity-gated PnP against the rendered map.
         # Its basin (~60 cm) covers the anchor-to-query gap, so snapped
@@ -831,6 +834,7 @@ class USGLocPipeline:
                     ).T_star
                 seeds.append((h, T0, False, 0, 1, None))
 
+        _timing.tick("correction")
         results = []
         for h, T0, was_snapped, inl, sup, st in seeds:
             res = refine_pose(
@@ -849,6 +853,7 @@ class USGLocPipeline:
         kept = [hr for hr in results
                 if hr[1].psnr >= best_psnr - self.cfg.psnr_prune_margin]
 
+        _timing.tick("refinement")
         # Polish: re-correct at the refined pose. A short refinement then
         # re-establishes stationarity of the weighted photometric energy at
         # the polished pose, so the Laplace approximation \eqref is evaluated
@@ -894,6 +899,7 @@ class USGLocPipeline:
                 polished.append((h, r, was_snapped, inl, sup, st))
             kept = polished
 
+        _timing.tick("polish")
         # pi_k from the evidence observed AT the corrected pose (Eq. 12).
         # The retrieval score describes the anchor a hypothesis started from,
         # not where the correction moved it, so on a repetitive scene it is
@@ -964,6 +970,7 @@ class USGLocPipeline:
                       for (_, r, sn, i, s, st), w, c in
                       zip(kept, weights.tolist(), components)],
             )
+        _timing.tick("mixture")
         return LocalizationResult(
             posterior=posterior,
             condensed=posterior.condense(at_mode=self.cfg.report_mode),
