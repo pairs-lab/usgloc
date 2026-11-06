@@ -8,10 +8,11 @@ A query the run skipped (no record) counts as a failure: infinite error, out of 
 A scene without a result keeps the \\res placeholder; Avg. and the rates are filled only when
 all 12 scenes are present.
 With --row gsplatloc, the medians stay as printed (ULF-Loc) and only the two success rates are filled
-from our runs of GSplatLoc's released code.
+from our runs of GSplatLoc's released code; with --partial MARK they are the mean over the scenes present,
+followed by MARK (the caption must name the missing scenes).
     python scripts/analysis/fill_table2_12scenes.py --run results/v2_12scenes_seed0
     python scripts/analysis/fill_table2_12scenes.py --row posenet --run results/posenet_ours_100
-    python scripts/analysis/fill_table2_12scenes.py --row gsplatloc --run results/gsplatloc_100
+    python scripts/analysis/fill_table2_12scenes.py --row gsplatloc --run results/gsplatloc_100 [--partial '$^\\ddagger$']
 """
 import argparse, json, re
 from pathlib import Path
@@ -63,7 +64,10 @@ def mark_best(blk, higher_better=()):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--run", default="results/v2_12scenes_seed0")
     ap.add_argument("--row", default="ours", choices=list(ROWS))
-    ap.add_argument("--tex", default=str(TEX), help="letter to fill (a copy for a dry run)"); args = ap.parse_args()
+    ap.add_argument("--tex", default=str(TEX), help="letter to fill (a copy for a dry run)")
+    ap.add_argument("--partial", help="gsplatloc only: success rates over the scenes present, followed by this mark")
+    args = ap.parse_args()
+    assert args.partial is None or args.row == "gsplatloc", "--partial is for the GSplatLoc row only"
     run = ROOT / args.run
     res = {}
     for s in SCENES:
@@ -83,6 +87,9 @@ def main():
     if len(res) == 12:
         v = np.array([res[s][:4] for s in SCENES])
         cells += [f"{v[:, 0].mean():.2f}/{v[:, 1].mean():.2f}", f"{v[:, 2].mean():.2f}", f"{v[:, 3].mean():.2f}"]
+    elif args.partial is not None and res:
+        v = np.array([res[s][:4] for s in SCENES if s in res])
+        cells += ["\\res", f"{v[:, 2].mean():.2f}{args.partial}", f"{v[:, 3].mean():.2f}{args.partial}"]
     else:
         cells += ["\\res"] * 3
     if args.row == "gsplatloc":                        # keep the printed medians, replace the success rates
