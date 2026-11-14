@@ -86,51 +86,51 @@ On the queries where we fail, our reported uncertainty is 15
 times larger.
 
 20
-00:01:47,817 --> 00:01:52,242
-Demo two: Apartment 2 Kitchen, our best case on 12Scenes.
+00:01:47,817 --> 00:01:52,167
+Demo two: Apartment 1 Living, our best case on 12Scenes.
 
 21
-00:01:52,592 --> 00:02:00,767
+00:01:52,517 --> 00:02:00,667
 Our median error is 0.4 centimeters, against 0.6 for ACE and
-0.7 for GSplatLoc.
+0.6 for GSplatLoc.
 
 22
-00:02:01,117 --> 00:02:07,517
+00:02:01,017 --> 00:02:07,417
 Across the 12 scenes, USGLoc is more accurate than every
 baseline shown on 7 of them.
 
 23
-00:02:09,750 --> 00:02:12,750
+00:02:09,625 --> 00:02:12,625
 Demo three: what the uncertainty is worth.
 
 24
-00:02:13,100 --> 00:02:16,700
+00:02:12,975 --> 00:02:16,575
 We keep the half of the queries each method trusts most.
 
 25
-00:02:17,050 --> 00:02:30,200
+00:02:16,925 --> 00:02:30,075
 Our median error drops from 0.77 to 0.50 centimeters; ACE
 drops to 0.60 with a PnP covariance, and to 0.70 with its
 inlier count.
 
 26
-00:02:30,550 --> 00:02:34,525
+00:02:30,425 --> 00:02:34,400
 The poses USGLoc trusts most are the most accurate.
 
 27
-00:02:36,150 --> 00:02:44,525
+00:02:36,025 --> 00:02:44,400
 On 7Scenes, USGLoc has the lowest average error and the
 highest success rate at two centimeters and two degrees.
 
 28
-00:02:44,875 --> 00:02:49,450
+00:02:44,750 --> 00:02:49,325
 And it is the only method here that reports how much to
 trust its pose.
 
 29
-00:02:51,067 --> 00:02:54,842
+00:02:50,942 --> 00:02:54,717
 USGLoc: a pose, and how much to trust it.
 
 30
-00:02:55,192 --> 00:02:57,967
+00:02:55,067 --> 00:02:57,842
 Code and video are linked in the paper.
