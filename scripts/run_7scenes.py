@@ -226,6 +226,10 @@ def parse_args():
                          "render at the coarse anchor pose, render at the refined pose, "
                          "rendered vacuity U_r, per-pixel weight e^{-gamma U_r}) -- the "
                          "UGS-Loc-style qualitative figure inputs and video material")
+    ap.add_argument("--frames", default=None,
+                    help="comma-separated test frames to localize instead of the --queries "
+                         "subsample, e.g. seq-03/909 (figures: with --save-visuals; no metrics "
+                         "are reported)")
     ap.add_argument("--anchor-stride", type=int, default=20,
                     help="subsample the TRAIN trajectory every K frames as submap anchors")
     ap.add_argument("--submap-radius", type=float, default=3.0,
@@ -945,6 +949,11 @@ def main():
         save_png(out_ref["rgb"], vis / f"{stem}_refined.png")
         save_png(out_ref["vacuity"], vis / f"{stem}_vacuity.png")
         save_png(torch.exp(-args.gamma * out_ref["vacuity"]), vis / f"{stem}_weight.png")
+        if corrector is not None:   # the correspondences of the first correction round at T0
+            import numpy as np
+            mt = corrector.matches_at(img, res.hypotheses[k].T0)
+            np.savez_compressed(vis / f"{stem}_matches.npz",
+                                **{key: val for key, val in mt.items() if key != "rgb"})
         import json as _json
         with open(vis / f"{stem}_poses.json", "w") as f:   # for the third-person map view
             _json.dump({"T0": res.hypotheses[k].T0.detach().cpu().tolist(),
@@ -1137,11 +1146,19 @@ def main():
                 idx = idx[: args.queries]
             print(f"      sequence mode: {len(idx)} consecutive frames of "
                   f"{args.seq_mode} (stride {args.seq_stride})")
+        elif args.frames:
+            want = {(f.split("/")[0], int(f.split("/")[1])) for f in args.frames.split(",")}
+            idx = [i for i in range(len(test_ds))
+                   if (test_ds[i].seq, int(test_ds[i].frame_id)) in want]
+            assert len(idx) == len(want), f"--frames: found {len(idx)} of {len(want)}"
         else:
             n_q = len(test_ds) if args.queries <= 0 else min(args.queries, len(test_ds))
             idx = torch.linspace(0, len(test_ds) - 1, n_q).round().long().unique().tolist()
         print(f"[4/5] localizing {len(idx)} test frames")
     records = localize_frames(eval_ds, idx, "val" if args.val_stride > 0 else "test")
+    if args.frames:
+        print(f"[5/5] --frames: {len(records)} frame(s) localized; no metrics reported")
+        return
     if len(records) < 4:
         die(f"only {len(records)} frames produced >=2 query instances; "
             "not enough to report metrics.")

@@ -1289,6 +1289,78 @@ class EvidentialMatchCorrector:
                        acc_inl=n_pool, acc_win=win)
 
     @torch.no_grad()
+    def _gate(self, conf: torch.Tensor, kr: torch.Tensor, out: dict):
+        """The correspondence filter of every correction round.
+
+        Samples the render at the render-side keypoints ``kr`` and keeps a match
+        when its confidence, alpha and depth are high enough, it is not on a
+        depth edge, and (vacuity gate) its alpha-normalized rendered vacuity
+        U_r / alpha is at most ``u_max``.  Returns ``(keep, u_n)``.
+        """
+        H, W = self.camera.height, self.camera.width
+        # Sample render-side depth / alpha / vacuity at the matches.
+        xi = kr[:, 0].round().long().clamp(0, W - 1)
+        yi = kr[:, 1].round().long().clamp(0, H - 1)
+        depth = out["depth"]
+        d = depth[yi, xi]
+        a = out["alpha"][yi, xi]
+        u = out["vacuity"][yi, xi]
+        # Expected depth blends fore/background into phantom surfaces at
+        # silhouettes: drop matches near a depth discontinuity (3x3
+        # local spread relative to depth).
+        dm = depth[None, None]
+        spread = (F.max_pool2d(dm, 3, 1, 1) + F.max_pool2d(-dm, 3, 1, 1))[0, 0]
+        keep = (
+            (conf >= self.conf_min)
+            & (a >= self.min_alpha)
+            & (d >= self.min_depth)
+            & (spread[yi, xi] <= self.edge_rel * d)
+        )
+        # The rendered vacuity channel is alpha-blended without
+        # normalization, so it is bounded by alpha; both the gate and the
+        # continuous weight act on the alpha-normalized vacuity U_r / alpha.
+        u_n = u / a.clamp_min(1e-6)
+        if self.gate_vacuity:
+            keep &= u_n <= self.u_max
+        return keep, u_n
+
+    @torch.no_grad()
+    def matches_at(self, query: torch.Tensor, T: torch.Tensor) -> dict:
+        """The correspondences of one correction round rendered at ``T``, before
+        the depth lift and RANSAC, with the matcher of the first round (the
+        warm-up matcher when ``matcher='stage'``).  For figures; ``correct()``
+        does not call it.  Returns numpy arrays: ``kq`` / ``kr`` (M, 2) query /
+        render pixels, ``conf``, ``u_n`` (alpha-normalized rendered vacuity at
+        ``kr``), ``keep`` (all filters) and ``keep_geo`` (all filters but the
+        vacuity gate), plus the render's ``rgb``.
+        """
+        dev = self.emap.means.device
+        H, W = self.camera.height, self.camera.width
+        rgb_q = query.to(dev, torch.float32)
+        if rgb_q.dim() == 2:
+            rgb_q = rgb_q[..., None].expand(H, W, 3)
+        assert rgb_q.shape[:2] == (H, W), f"query {tuple(rgb_q.shape)} != camera {(H, W)}"
+        warm = self.stage_warm if self.matcher_name == "stage" else self.matcher_name
+        out = self._render(T)
+        if warm == "mast3r":
+            corr = self._match_mast3r(self._mast3r_prep(rgb_q), out["rgb"])
+        elif warm == "loftr":
+            corr = self._match_loftr(_to_gray(rgb_q)[None, None],
+                                     _to_gray(out["rgb"])[None, None].to(torch.float32))
+        else:
+            raise NotImplementedError(f"matches_at: first-round matcher {warm!r}")
+        kr, conf = corr["keypoints1"], corr["confidence"]
+        keep, u_n = self._gate(conf, kr, out)
+        gate, self.gate_vacuity = self.gate_vacuity, False
+        try:
+            keep_geo, _ = self._gate(conf, kr, out)
+        finally:
+            self.gate_vacuity = gate
+        np_ = lambda x: x.detach().float().cpu().numpy()
+        return dict(kq=np_(corr["keypoints0"]), kr=np_(kr), conf=np_(conf), u_n=np_(u_n),
+                    keep=keep.cpu().numpy(), keep_geo=keep_geo.cpu().numpy(), rgb=np_(out["rgb"]),
+                    u_max=float(self.u_max), conf_min=float(self.conf_min))
+
     def correct(self, query: torch.Tensor, T0: torch.Tensor,
                 rounds: Optional[int] = None) -> CorrectionResult:
         """``query``: (H, W) luma or (H, W, 3) RGB in [0, 1] at ``camera``
@@ -1398,30 +1470,9 @@ class EvidentialMatchCorrector:
             if kq.numel() == 0:
                 break
 
-            # Sample render-side depth / alpha / vacuity at the matches.
-            xi = kr[:, 0].round().long().clamp(0, W - 1)
-            yi = kr[:, 1].round().long().clamp(0, H - 1)
+            keep, u_n = self._gate(conf, kr, out)
             depth = out["depth"]
-            d = depth[yi, xi]
-            a = out["alpha"][yi, xi]
-            u = out["vacuity"][yi, xi]
-            # Expected depth blends fore/background into phantom surfaces at
-            # silhouettes: drop matches near a depth discontinuity (3x3
-            # local spread relative to depth).
             dm = depth[None, None]
-            spread = (F.max_pool2d(dm, 3, 1, 1) + F.max_pool2d(-dm, 3, 1, 1))[0, 0]
-            keep = (
-                (conf >= self.conf_min)
-                & (a >= self.min_alpha)
-                & (d >= self.min_depth)
-                & (spread[yi, xi] <= self.edge_rel * d)
-            )
-            # The rendered vacuity channel is alpha-blended without
-            # normalization, so it is bounded by alpha; both the gate and the
-            # continuous weight act on the alpha-normalized vacuity U_r / alpha.
-            u_n = u / a.clamp_min(1e-6)
-            if self.gate_vacuity:
-                keep &= u_n <= self.u_max
             if int(keep.sum()) < 6:
                 break
             kq, kr = kq[keep], kr[keep]
