@@ -20,6 +20,24 @@ def test_gated_similarity_suppresses_uncertain_pairs():
     assert (1, 1) not in [(i, j) for i, j, _ in matches]
 
 
+def test_pipeline_rejects_a_gate_strength_the_aggregator_ignores():
+    scene = synthetic.make_scene(num_objects=3, seed=0)
+    emap = synthetic.build_map_from_scene(scene, n_anchors=2)
+    cam = synthetic.default_camera(64, 48)
+    desc = InstanceDescriptorNet(clip_dim=scene.clip_feats.shape[1], out_dim=64)
+    try:
+        USGLocPipeline(emap, TorchSplatRenderer(), cam, desc,
+                       SceneAggregator(dim=64, heads=4), PipelineConfig(lambda_u=0.0))
+    except ValueError as e:
+        assert "lambda_u" in str(e)
+    else:
+        raise AssertionError("a lambda_u the aggregator does not use must be rejected")
+    pipe = USGLocPipeline(emap, TorchSplatRenderer(), cam, desc,
+                          SceneAggregator(dim=64, heads=4, lambda_u=0.0),
+                          PipelineConfig(lambda_u=0.0))
+    assert pipe.aggregator.lambda_u == 0.0
+
+
 def test_map_building_flags_dynamic_objects():
     scene = synthetic.make_scene(num_objects=6, dynamic_fraction=0.34, seed=0)
     emap = synthetic.build_map_from_scene(scene, n_anchors=6)

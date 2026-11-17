@@ -399,6 +399,14 @@ class USGLocPipeline:
         self.desc_net = descriptor_net
         self.aggregator = aggregator
         self.cfg = config or PipelineConfig()
+        # The evidential gate is applied inside the aggregator's pooling, so a
+        # config value the aggregator does not share would be silently ignored.
+        agg_lu = getattr(aggregator, "lambda_u", None)
+        if agg_lu is not None and abs(float(agg_lu) - float(self.cfg.lambda_u)) > 1e-12:
+            raise ValueError(
+                f"PipelineConfig.lambda_u={self.cfg.lambda_u} but the aggregator gates "
+                f"with lambda_u={agg_lu}; build SceneAggregator(lambda_u=...) with the "
+                "same value")
         self.corrector = corrector
         self.landmark_corrector = landmark_corrector
         # Diagnostics only: when True, localize() stores a dict of every

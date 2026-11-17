@@ -687,7 +687,7 @@ def main():
     print("[3/5] building pipeline + query front end")
     clip_dim = emap.primitives[0].clip_feat.shape[0]
     desc = InstanceDescriptorNet(clip_dim=clip_dim)
-    agg = SceneAggregator()
+    agg = SceneAggregator(lambda_u=args.lambda_u)   # the gate lives in the pooling
     ckpt = None
     if args.encoders is not None:
         if not Path(args.encoders).is_file():
