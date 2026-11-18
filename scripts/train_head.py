@@ -60,6 +60,9 @@ def parse_args():
     ap.add_argument("--fastsam-weights", default="FastSAM-s.pt")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--objective", choices=("edl", "ce"), default="edl",
+                    help="'ce': cross-entropy head on the same data, for the softmax ablation "
+                         "(read it with --head-mode/--opinion-mode softmax)")
     return ap.parse_args()
 
 
@@ -122,7 +125,7 @@ def main():
           f"C={len(mapping.INDOOR_VOCABULARY)}")
     head = mapping.train_edl_head(feats, labels,
                                   num_classes=len(mapping.INDOOR_VOCABULARY),
-                                  device=args.device, seed=args.seed)
+                                  device=args.device, seed=args.seed, objective=args.objective)
     torch.save(head.state_dict(), out)
     print(f"saved {out}")
 

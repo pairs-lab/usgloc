@@ -68,6 +68,9 @@ def parse_args():
     ap.add_argument("--fastsam-weights", default="FastSAM-s.pt")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--opinion-mode", choices=("edl", "softmax"), default="edl",
+                    help="query-side opinions while training; 'softmax' for a CE head "
+                         "(the softmax ablation, as run_7scenes.py --opinion-mode)")
     return ap.parse_args()
 
 
@@ -108,7 +111,7 @@ def main():
     head.load_state_dict(torch.load(args.head_ckpt, map_location="cpu",
                                     weights_only=True))
     front = RealQueryEncoder(edl_head=head, fastsam_weights=args.fastsam_weights,
-                             device=str(device))
+                             device=str(device), opinion_mode=args.opinion_mode)
 
     # Voronoi-assigned positives: every train frame belongs to exactly ONE
     # nearest anchor (pose distance + angle penalty), and an anchor's query
