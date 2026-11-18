@@ -45,14 +45,16 @@ def skew(v):
                      np.stack([-v[:, 1], v[:, 0], z], 1)], 1)
 
 
-def pnp_covariance(sc, T, f, thr):
-    """sc: (3,h,w) scene coordinates; T: 4x4 world->camera. Returns Sigma (6x6), n_inl, s2."""
+def pnp_covariance(sc, T, f, thr, cx=None, cy=None):
+    """sc: (3,h,w) scene coordinates; T: 4x4 world->camera. Returns Sigma (6x6), n_inl, s2.
+    The principal point defaults to the centre of the output grid (7Scenes)."""
     h, w = sc.shape[1:]
     u, v = np.meshgrid(np.arange(w) * SUB + SUB // 2, np.arange(h) * SUB + SUB // 2)
     Xw = sc.reshape(3, -1).T
     Xc = Xw @ T[:3, :3].T + T[:3, 3]
     Z = Xc[:, 2]; ok = Z > 0.1
-    cx, cy = w * SUB / 2, h * SUB / 2
+    cx = w * SUB / 2 if cx is None else cx
+    cy = h * SUB / 2 if cy is None else cy
     pu = f * Xc[:, 0] / np.where(ok, Z, 1) + cx; pv = f * Xc[:, 1] / np.where(ok, Z, 1) + cy
     r = np.stack([pu - u.ravel(), pv - v.ravel()], 1)
     inl = ok & (np.linalg.norm(r, axis=1) < thr)
