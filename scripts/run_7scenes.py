@@ -417,6 +417,10 @@ def parse_args():
     ap.add_argument("--report-mean", action="store_true",
                     help="ablation: report the moment-matched mixture mean "
                          "instead of the highest-weight mode")
+    ap.add_argument("--cov-source", choices=("photometric", "pnp"), default="photometric",
+                    help="component covariance: the photometric Laplace (default) or the "
+                         "reprojection covariance of the polish correction's 2D-3D inliers "
+                         "(the temperature is fitted on it the same way)")
     ap.add_argument("--prior-json", default=None,
                     help="evaluate in the PRIOR-REFINEMENT setting used by "
                          "GS-CPR/STDLoc/UGS-Loc: read per-frame poses from "
@@ -715,6 +719,7 @@ def main():
                          weight_by_inliers=not args.weight_retrieval,
                          retrieval_prior_power=1.0 if args.weight_retrieval else 0.0,
                          report_mode=not args.report_mean,
+                         cov_source=args.cov_source,
                          report_geometric=args.report_geometric,
                          support_power=args.support_power,
                          snap_rank=args.snap_rank,
@@ -1094,6 +1099,7 @@ def main():
                 "n_corrections": int(res.n_corrections),
                 "n_escalations": int(res.n_escalations),
                 "n_vviews": int(res.n_vviews),
+                "cov_fallbacks": int(res.cov_fallbacks),
                 "vsearch_fired": bool(res.vsearch_fired),
                 "vsearch_used": bool(res.vsearch_used),
                 "landmark_ok": bool(res.landmark_ok),

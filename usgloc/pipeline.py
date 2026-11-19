@@ -64,6 +64,12 @@ class PipelineConfig:
                                     # render fidelity improves
     polish_refine_iters: int = 15   # short refine after an accepted polish so
                                     # Eq. 10 is evaluated at a stationary point
+    # Component covariance. 'photometric' (default): the Laplace approximation of
+    # the weighted photometric energy. 'pnp': the Gauss-Newton covariance of the
+    # reprojection error of the polish correction's 2D-3D inliers at the final
+    # pose, in the same chart; components without a successful polish keep the
+    # photometric covariance (counted in LocalizationResult.cov_fallbacks).
+    cov_source: str = "photometric"
     # Mixture weighting. The retrieval score is a property of the ANCHOR, not
     # of the corrected pose, so it is demoted to a weak tie-break (power 0
     # removes it entirely) and the weights come from evidence measured at the
@@ -301,6 +307,8 @@ class LocalizationResult:
     landmark_kept: bool = False   # a component of the reported posterior came
                                   # from the landmark hypothesis
     landmark_sec: float = 0.0     # seconds spent in the landmark solve
+    cov_fallbacks: int = 0        # cov_source='pnp': kept components that had no
+                                  # polish inliers and kept the photometric covariance
 
 
 def _count_inliers(obj, img, T_cw, camera, thresh_px: float) -> int:
@@ -317,6 +325,49 @@ def _count_inliers(obj, img, T_cw, camera, thresh_px: float) -> int:
     v = camera.fy * X[:, 1] / np.where(ok, z, 1.0) + camera.cy
     err = np.hypot(u - img[:, 0], v - img[:, 1])
     return int(np.sum(ok & (err <= thresh_px)))
+
+
+def _pnp_jacobian(obj, img, T_cw, camera, thresh_px: float):
+    """Reprojection residuals r = pi(T X) - x of the pairs within thresh_px at T_cw and their
+    Jacobian J = dr/dxi (n, 2, 6) in the left chart T = exp(xi^) T_cw, xi = (rho, phi) -- the
+    chart of the photometric Laplace covariance (refinement.py, se3.apply_tangent)."""
+    import numpy as np
+
+    T = T_cw.detach().double().cpu().numpy()
+    Xc = obj @ T[:3, :3].T + T[:3, 3]
+    z = Xc[:, 2]
+    ok = z > 1e-6
+    zs = np.where(ok, z, 1.0)
+    r = np.stack([camera.fx * Xc[:, 0] / zs + camera.cx - img[:, 0],
+                  camera.fy * Xc[:, 1] / zs + camera.cy - img[:, 1]], 1)
+    keep = ok & (np.hypot(r[:, 0], r[:, 1]) <= thresh_px)
+    X, Y, Z = Xc[keep, 0], Xc[keep, 1], Xc[keep, 2]
+    P = np.zeros((len(Z), 2, 3))                       # d(pixel)/d(camera point)
+    P[:, 0, 0] = camera.fx / Z; P[:, 0, 2] = -camera.fx * X / Z ** 2
+    P[:, 1, 1] = camera.fy / Z; P[:, 1, 2] = -camera.fy * Y / Z ** 2
+    S = np.zeros((len(Z), 3, 3))                       # skew(X_c): d(phi x X_c)/dphi = -S
+    S[:, 0, 1], S[:, 0, 2], S[:, 1, 0] = -Z, Y, Z
+    S[:, 1, 2], S[:, 2, 0], S[:, 2, 1] = -X, -Y, X
+    return r[keep], np.concatenate([P, -P @ S], 2)
+
+
+def _pnp_covariance(obj, img, T_cw, camera, thresh_px: float, min_points: int = 12):
+    """Gauss-Newton covariance of the pose from 2D-3D pairs: Sigma = s^2 (J^T J)^-1 with
+    s^2 = sum ||r||^2 / (2n - 6), over the pairs within thresh_px at T_cw (the construction of
+    scripts/analysis/ace_pnp_covariance.py). None if fewer than min_points pairs remain."""
+    import numpy as np
+
+    if obj is None or img is None or len(obj) < min_points:
+        return None
+    r, J = _pnp_jacobian(obj, img, T_cw, camera, thresh_px)
+    n = len(r)
+    if n < min_points:
+        return None
+    H = np.einsum("nij,nik->jk", J, J)
+    s2 = float((r ** 2).sum() / max(2 * n - 6, 1))
+    Sig = s2 * np.linalg.inv(H + 1e-12 * np.trace(H) * np.eye(6))
+    Sig = 0.5 * (Sig + Sig.T)
+    return torch.as_tensor(Sig, dtype=T_cw.dtype, device=T_cw.device)
 
 
 def _corr_stats(c, camera, grid: int = 8) -> dict:
@@ -867,8 +918,10 @@ class USGLocPipeline:
         # the polished pose, so the Laplace approximation \eqref is evaluated
         # at an actual optimum. The polish is accepted only when render
         # fidelity does not degrade.
+        cov_fallbacks = len(kept) if self.cfg.cov_source == "pnp" else 0
         if self.corrector is not None and self.cfg.corr_polish:
             polished = []
+            cov_fallbacks = 0
             for h, r, was_snapped, inl, sup, st in kept:
                 c = self.corrector.correct(gray_full, r.T_star)
                 if c.success:
@@ -904,6 +957,15 @@ class USGLocPipeline:
                             if n_ref < self.cfg.geo_verify_ratio * c.inliers:
                                 r = dataclasses.replace(
                                     r2, T_star=c.T.to(image_q.dtype))
+                if self.cfg.cov_source == "pnp":
+                    # Reprojection covariance of the polish inliers at the pose the
+                    # component reports (accepted polish or the refined pose).
+                    S = (_pnp_covariance(c.obj, c.img, r.T_star, self.corrector.camera,
+                                         self.corrector.reproj_thresh_px) if c.success else None)
+                    if S is None:
+                        cov_fallbacks += 1
+                    else:
+                        r = dataclasses.replace(r, Sigma=S)
                 polished.append((h, r, was_snapped, inl, sup, st))
             kept = polished
 
@@ -997,4 +1059,5 @@ class USGLocPipeline:
             landmark_kept=any(int(h.submap_index) == LANDMARK_SUBMAP
                               for h, _, _, _, _, _ in kept),
             landmark_sec=lm_sec,
+            cov_fallbacks=cov_fallbacks,
         )
