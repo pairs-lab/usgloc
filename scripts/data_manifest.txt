@@ -1,0 +1,23 @@
+# Dataset manifest recorded 2026-11-22 before deleting data/ (used by scripts/rebuild_all.sh check-data)
+# columns: path files bytes
+# visloc_pseudo_gt_limitations commit 22b7c48a0e55b49d0214a8dbb022426f518e2795
+data/7scenes_source/chess 18003 3077820897
+data/7scenes_source/fire 12007 2299844716
+data/7scenes_source/heads 6005 955724816
+data/7scenes_source/office 30010 4704836794
+data/7scenes_source/pumpkin 18003 2888985737
+data/7scenes_source/redkitchen 36003 6137326738
+data/7scenes_source/stairs 9009 1495474528
+data/12scenes_source/apt1/kitchen 3307 620778328
+data/12scenes_source/apt1/living 4588 955294645
+data/12scenes_source/apt2/bed 3418 666306946
+data/12scenes_source/apt2/kitchen 3040 508500775
+data/12scenes_source/apt2/living 3274 737258379
+data/12scenes_source/apt2/luke 5986 1297212938
+data/12scenes_source/office1/gates362 11782 2072867100
+data/12scenes_source/office1/gates381 12013 2283037099
+data/12scenes_source/office1/lounge 3784 893851162
+data/12scenes_source/office1/manolis 7294 1342549874
+data/12scenes_source/office2/5a 4498 878753295
+data/12scenes_source/office2/5b 5572 1116811335
+data/visloc_pseudo_gt_limitations/pgt 76 13483954
