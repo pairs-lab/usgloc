@@ -10,7 +10,9 @@
 # not equal to, the paper's. Check with `eval` (new folders results/rebuild_*, the paper's results/v2_* stay untouched);
 # `encoders` retrains the encoders on the rebuilt maps into ckpts/v2_rebuild without touching ckpts/v2.
 # Time on an RTX 4070 Ti with a free CPU (step times of the 2026-11-03/04 build): about 10 h for `maps`, most of it the
-# descriptor field; `encoders` adds about 3 h; `eval` about 15 h. Download 34 GB, final maps 31 GB.
+# descriptor field; `encoders` adds about 3 h; `eval` about 15 h. Download 34 GB (+ 2.75 GB MASt3R checkpoint, which
+# `eval` needs), final maps 31 GB. The baselines (ACE, DSAC*, Marepo, GSplatLoc) are not restored here; their results
+# stay in results/ (sources: docs/reports/2026-11-22-storage-cleanup/logs/deleted_third_party.txt).
 #   usage: bash scripts/rebuild_maps.sh check|data|check-data|maps|encoders|eval|all    (all = check, data, maps)
 #          DRY=1 bash scripts/rebuild_maps.sh maps                  # print the commands only
 #          ENC=ckpts/v2_rebuild bash scripts/rebuild_maps.sh eval   # evaluate with the retrained encoders
@@ -27,6 +29,7 @@ HQ="--fit-width 640 --fit-height 480 --iters 20000 --fit-stride 5 --views-uint8"
 URL7=http://download.microsoft.com/download/2/8/5/28564B23-0828-408F-8631-23B1EFF1DAC8/chess.zip
 URL12=http://graphics.stanford.edu/projects/reloc/data/apt1.zip
 PGT_REPO=https://github.com/tsattler/visloc_pseudo_gt_limitations
+MAST3R_HF=naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric
 PGT_COMMIT=$(sed -n 's/^# visloc_pseudo_gt_limitations commit //p' scripts/data_manifest.txt)
 PICKS_7scenes="chess:hq fire:hq heads:base office:base pumpkin:base redkitchen:hq stairs:base"
 PICKS_12scenes="apt1/kitchen:hq apt1/living:base apt2/bed:hq apt2/kitchen:base apt2/living:hq apt2/luke:hq office1/gates362:base office1/gates381:hq office1/lounge:base office1/manolis:hq office2/5a:hq office2/5b:base"
@@ -49,10 +52,12 @@ step() {  # NAME OUTPUT command...   (skip if OUTPUT exists; DRY=1 prints only)
 check() {
   local ok=1 f DS
   python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null && echo "ok   CUDA torch in $VENV" || { echo "FAIL CUDA torch in $VENV"; ok=0; }
-  for f in FastSAM-s.pt "$MAST3R_CKPT" scripts/data_manifest.txt ckpts/edl_head_sel.pt ckpts/rb0/edl_head_12scenes_base.pt \
+  for f in FastSAM-s.pt "$MAST3R_ROOT/mast3r" "$MAST3R_ROOT/dust3r" scripts/data_manifest.txt ckpts/edl_head_sel.pt ckpts/rb0/edl_head_12scenes_base.pt \
            ckpts/v2/7scenes/head_sel.pt ckpts/v2/12scenes/head_sel.pt; do
     [ -e "$f" ] && echo "ok   $f" || { echo "FAIL missing $f"; ok=0; }; done
   for DS in 7scenes 12scenes; do echo "ok   $(ls ckpts/v2/$DS/*_encoders.pt 2>/dev/null | wc -l) encoder sets in ckpts/v2/$DS (kept)"; done
+  [ -e "$MAST3R_CKPT/model.safetensors" ] && echo "ok   $MAST3R_CKPT" || echo "note $MAST3R_CKPT missing; \`data\` downloads it from Hugging Face ($MAST3R_HF)"
+  curl -sfIL --max-time 30 "https://huggingface.co/$MAST3R_HF/resolve/main/config.json" > /dev/null && echo "ok   reachable huggingface.co/$MAST3R_HF" || { echo "FAIL unreachable huggingface.co/$MAST3R_HF"; ok=0; }
   for f in $URL7 $URL12; do curl -sfIL --max-time 30 "$f" > /dev/null && echo "ok   reachable $f" || { echo "FAIL unreachable $f"; ok=0; }; done
   git ls-remote "$PGT_REPO" > /dev/null 2>&1 && echo "ok   reachable $PGT_REPO" || { echo "FAIL unreachable $PGT_REPO"; ok=0; }
   echo "free disk: $(df -h . | tail -n 1 | awk '{print $4}') (needed: 34 GB data + 31 GB maps)"
@@ -71,7 +76,9 @@ check_data() {  # file count and bytes of every scene against scripts/data_manif
 data() {
   bash scripts/download_7scenes.sh && bash scripts/download_12scenes.sh || return 1
   [ -d data/visloc_pseudo_gt_limitations/.git ] || git clone -q $PGT_REPO data/visloc_pseudo_gt_limitations || return 1
-  git -C data/visloc_pseudo_gt_limitations checkout -q $PGT_COMMIT && check_data
+  git -C data/visloc_pseudo_gt_limitations checkout -q $PGT_COMMIT || return 1
+  [ -e "$MAST3R_CKPT/model.safetensors" ] || python -c "from huggingface_hub import snapshot_download; snapshot_download('$MAST3R_HF', local_dir='$MAST3R_CKPT')" || return 1
+  check_data
 }
 maps() {
   local DS E SC V U FIT EXTRA LF
