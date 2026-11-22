@@ -8,8 +8,8 @@ The temperature is fitted per scene by our median rule on the OTHER half of the 
 test transform (grayscale, height 480); the SfM focal and principal point are scaled with it.
 Runs on CPU.
 
-    python scripts/analysis/ace_pnp_covariance_12scenes.py --ace-repo ../third_party/ace \
-        --heads ../third_party/ace_models/ace_models/12Scenes_pgt
+    python scripts/analysis/ace_pnp_covariance_12scenes.py --ace-repo ../../third_party/ace \
+        --heads ../../third_party/ace_models/ace_models/12Scenes_pgt
 """
 import argparse, json, sys
 from pathlib import Path

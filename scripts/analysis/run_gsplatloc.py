@@ -60,8 +60,8 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]                       # usgloc project root
-GSL_REPO = Path("/home/thanhnc/gauss_ws/src/third_party/gsplatloc")
-WORK = Path("/home/thanhnc/gauss_ws/src/third_party/gsplatloc_work")
+GSL_REPO = Path("/home/thanhnc/gauss_ws/third_party/gsplatloc")
+WORK = Path("/home/thanhnc/gauss_ws/third_party/gsplatloc_work")
 PGT = ROOT / "data/visloc_pseudo_gt_limitations/pgt/sfm"
 SCALE = {"7scenes": 1.0, "12scenes": 0.5}   # 12Scenes 1296x968 -> 648x484 (exact half, square pixels)
 NATIVE = {"7scenes": (640, 480), "12scenes": (1296, 968)}

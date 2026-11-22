@@ -22,7 +22,7 @@ cd "$(dirname "$0")/.."
 VENV=${VENV:-$HOME/venvs/uags}; CUDA=${CUDA_HOME:-$HOME/.local/cuda-12.8}
 export PATH=$VENV/bin:$CUDA/bin:$PATH CUDA_HOME=$CUDA LD_LIBRARY_PATH=$CUDA/lib64:${LD_LIBRARY_PATH:-}
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export MAST3R_ROOT=${MAST3R_ROOT:-$(cd .. && pwd)/third_party}; export MAST3R_CKPT=${MAST3R_CKPT:-$MAST3R_ROOT/mast3r_ckpt}
+export MAST3R_ROOT=${MAST3R_ROOT:-$(cd ../.. && pwd)/third_party}; export MAST3R_CKPT=${MAST3R_CKPT:-$MAST3R_ROOT/mast3r_ckpt}
 MAPS_ROOT=${MAPS_ROOT:-maps/v2}; ENC=${ENC:-ckpts/v2}
 DEPTH="--depth-weight 0.2 --depth-scale 1.0"
 HQ="--fit-width 640 --fit-height 480 --iters 20000 --fit-stride 5 --views-uint8"
